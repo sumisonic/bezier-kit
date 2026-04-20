@@ -1,0 +1,74 @@
+name: Deploy examples to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build landing + examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build core (required by examples)
+        run: pnpm --filter @sumisonic/bezier-kit-core run build
+
+      - name: Build core (style) (required by examples if any use it)
+        run: pnpm --filter @sumisonic/bezier-kit-style run build
+
+      - name: Build canvas-morph (GitHub Pages sub-path)
+        run: pnpm --filter canvas-morph run build
+        env:
+          VITE_BASE: /bezier-kit/canvas-morph/
+
+      - name: Build threejs-tube (GitHub Pages sub-path)
+        run: pnpm --filter threejs-tube run build
+        env:
+          VITE_BASE: /bezier-kit/threejs-tube/
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp examples/landing/index.html _site/
+          cp -r examples/canvas-morph/dist _site/canvas-morph
+          cp -r examples/threejs-tube/dist _site/threejs-tube
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

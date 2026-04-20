@@ -1,0 +1,60 @@
+{
+  "name": "@sumisonic/bezier-kit-core",
+  "version": "0.1.0",
+  "description": "Zero-dependency 2D/3D cubic-bezier geometry library (morph, split, arc-length)",
+  "license": "MIT",
+  "author": "sumisonic",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sumisonic/bezier-kit.git",
+    "directory": "packages/core"
+  },
+  "homepage": "https://github.com/sumisonic/bezier-kit#readme",
+  "bugs": {
+    "url": "https://github.com/sumisonic/bezier-kit/issues"
+  },
+  "keywords": [
+    "bezier",
+    "cubic-bezier",
+    "morph",
+    "morphing",
+    "interpolate",
+    "arc-length",
+    "catmull-rom",
+    "geometry",
+    "2d",
+    "3d",
+    "typescript",
+    "zero-dependency",
+    "functional"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest",
+    "test:run": "vitest run --passWithNoTests",
+    "bench": "vitest bench --run",
+    "type-check": "tsc --noEmit"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

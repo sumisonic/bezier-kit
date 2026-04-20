@@ -1,0 +1,11 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
+  "changelog": ["@changesets/changelog-github", { "repo": "sumisonic/bezier-kit" }],
+  "commit": false,
+  "fixed": [],
+  "linked": [["@sumisonic/bezier-kit-core", "@sumisonic/bezier-kit-style"]],
+  "access": "public",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": ["canvas-morph", "threejs-tube"]
+}

@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+*.tsbuildinfo
+
+# Test coverage
+coverage/
+
+# Turbo / pnpm cache
+.turbo/
+.pnpm-store/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Worktrunk worktrees(別 git worktree なので無視)
+.worktrees/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Vitest
+.vitest-cache/
+
+# Local personal notes (gitignore by pattern)
+*.local.md
+
+# Internal Claude workspace (CLAUDE.md, SOW, etc.)
+.claude/
