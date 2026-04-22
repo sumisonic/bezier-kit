@@ -1,6 +1,6 @@
 {
   "name": "@sumisonic/bezier-kit-style",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Style-aware bezier path interpolation and splitting (color, gradient, stroke)",
   "license": "MIT",
   "author": "sumisonic",

@@ -1,6 +1,6 @@
 {
   "name": "@sumisonic/bezier-kit-core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Zero-dependency 2D/3D cubic-bezier geometry library (morph, split, arc-length)",
   "license": "MIT",
   "author": "sumisonic",
