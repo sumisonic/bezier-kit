@@ -68,6 +68,8 @@ Mixing 2D and 3D paths produces a **compile-time error**, so dimension mistakes 
 - **Arc-length queries**: Get point and tangent vector at any arc-length ratio via `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)`
 - **Arc-length splits**: Slice a path at any ratio with `createPathSplitter`; sub-paths can be further interpolated or split
 - **Path generation from points**: `fromCatmullRom` (smooth spline) and `fromPolyline` (straight segments)
+- **Frenet frames (3D, hot-path)**: twist-free (T, N, B) via double-reflection, written directly into a `Float32Array`. Useful for tube/ribbon rendering
+- **Catmull-Rom Float32Array writers**: skip `BezierPath` object creation and go straight from control points to geometry with zero allocation
 - **Styled paths** (`@sumisonic/bezier-kit-style`): animate 2D paths with color, gradient, and stroke using the same patterns
 - **Dimension-safe at type level**: Mixing 2D and 3D calls is a compile-time error
 
@@ -169,6 +171,66 @@ const path3d = mapPoints<Point2D, Point3D>(path2d, (p) => ({ x: p.x, y: p.y, z: 
 // Or use it for any per-point transform (translation, scale, rotation, etc.)
 const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.y }))
 ```
+
+#### Frenet frames (3D only, hot-path friendly)
+
+Compute a twist-free `(T, N, B)` orthonormal basis along a 3D path using the double-reflection method. Useful for tube/ribbon rendering.
+
+```ts
+import {
+  FRENET_STRIDE,
+  FRENET_OFFSET,
+  writeFrenetFrames,
+  readFrenetFrame,
+  computeFrenetFrames,
+} from '@sumisonic/bezier-kit-core'
+
+// Debug / one-shot: get an array of frame objects
+const frames = computeFrenetFrames(path, samples)
+frames[0].tangent // normalized { x, y, z }
+frames[0].normal // orthogonal to T
+frames[0].binormal // = T × N
+
+// Hot-path: write in-place into a Float32Array (zero allocation)
+const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
+writeFrenetFrames(framesBuffer, path, samples)
+
+// Read any component via stride + offset
+const frameIdx = 5
+const off = frameIdx * FRENET_STRIDE
+const tx = framesBuffer[off + FRENET_OFFSET.TANGENT]
+```
+
+- **Twist-free**: minimal change of `N` between adjacent frames (double-reflection method)
+- **Zero-alloc**: cubic Bezier formulas are inlined, no `pointAt`/`tangentAt` calls
+- **Precision knob**: `{ arcLengthSamples: 64 }` (default 64)
+- **`FRENET_STRIDE = 12`** and **`FRENET_OFFSET`** (POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9) are stable within a major version
+
+#### Catmull-Rom Float32Array writers (hot-path friendly)
+
+When control points live in a `Float32Array` (WebAudio / WebXR / WASM interop), you can skip the `BezierPath` object entirely and write segment numerics directly.
+
+```ts
+import {
+  CATMULL_ROM_SEGMENT_STRIDE,
+  CATMULL_ROM_SEGMENT_OFFSET,
+  writeCatmullRomSegments,
+  writeFrenetFramesFromCatmullRom,
+} from '@sumisonic/bezier-kit-core'
+
+// 20 control points → 19 segments (12 floats each: start xyz, cp1 xyz, cp2 xyz, end xyz)
+const controlPoints = new Float32Array(20 * 3)
+const segments = new Float32Array(19 * CATMULL_ROM_SEGMENT_STRIDE)
+writeCatmullRomSegments(segments, controlPoints, 20)
+
+// Or go straight from control points to Frenet frames
+const samples = 101
+const frames = new Float32Array(samples * FRENET_STRIDE)
+writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
+```
+
+- `CATMULL_ROM_SEGMENT_STRIDE = 12` and `CATMULL_ROM_SEGMENT_OFFSET` are stable within a major version
+- Matches `fromCatmullRom` at float32 precision (within 1e-4)
 
 ### style (2D only)
 
