@@ -12,6 +12,7 @@ export type { BBox, BBox2D, BBox3D } from './bbox'
 export type { ArcLengthOptions } from './segment'
 export type { ArcLengthIndex, ArcLengthLocation } from './arc-length'
 export type { CatmullRomOptions } from './path/from'
+export type { FrenetFrame, FrenetOptions } from './frenet'
 
 export { lerp, clamp, lerpPoint, distance, scan, binarySearchIndex } from './math'
 export { bbox } from './bbox'
@@ -24,3 +25,12 @@ export { createPathSplitter } from './path/split'
 export { fromCatmullRom, fromPolyline } from './path/from'
 export { mapPoints } from './path/map-points'
 export { pointAtLength, tangentAtLength } from './path-query'
+export { FRENET_STRIDE, FRENET_OFFSET, writeFrenetFrames, readFrenetFrame, computeFrenetFrames } from './frenet'
+export {
+  CATMULL_ROM_SEGMENT_STRIDE,
+  CATMULL_ROM_SEGMENT_OFFSET,
+  catmullRomSegmentCount,
+  writeCatmullRomSegments,
+  writeFrenetFramesFromSegments,
+  writeFrenetFramesFromCatmullRom,
+} from './catmull-rom-hotpath'
