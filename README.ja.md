@@ -58,6 +58,8 @@ const interp = createPathInterpolator(a, b) // 引数・戻り値すべて Point
 - **弧長比率でのパス上問い合わせ**: `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)` で座標と接線ベクトルを取得
 - **弧長比率でのパス分割**: `createPathSplitter` で任意位置から 2 つに切り分け、分割後も補間・再分割が可能
 - **点列からのパス生成**: `fromCatmullRom`(滑らかなスプライン)と `fromPolyline`(折れ線)
+- **Frenet フレーム(3D、ホットパス向け)**: double-reflection 法で twist-free な (T, N, B) を `Float32Array` に直接書き込み。Tube / Ribbon 描画に使える
+- **Catmull-Rom の Float32Array 直書き API**: 毎フレームの `BezierPath` 生成を回避し、alloc ゼロで制御点 → 幾何情報を変換
 - **スタイル付きパスの補間**(`@sumisonic/bezier-kit-style`): 色・グラデーション・ストロークを含む 2D パスを同じ手順でアニメーション可能
 - **型で 2D / 3D を区別**: 混在呼び出しはコンパイルエラー
 
@@ -159,6 +161,68 @@ const path3d = mapPoints<Point2D, Point3D>(path2d, (p) => ({ x: p.x, y: p.y, z: 
 // 平行移動、スケール、回転など任意の点変換にも使える
 const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.y }))
 ```
+
+#### Frenet フレーム(3D 限定、ホットパス向け)
+
+3D パスに沿った twist-free な直交基底 `(T, N, B)` をサンプル点ごとに計算する。double-reflection 法で法線の捩れを最小化し、Tube geometry や Ribbon 描画に使える。
+
+```ts
+import {
+  FRENET_STRIDE,
+  FRENET_OFFSET,
+  writeFrenetFrames,
+  readFrenetFrame,
+  computeFrenetFrames,
+} from '@sumisonic/bezier-kit-core'
+
+// デバッグ / 単発利用: オブジェクト配列を取得
+const frames = computeFrenetFrames(path, samples)
+frames[0].tangent // { x, y, z }、正規化済み
+frames[0].normal // 同上、T と直交
+frames[0].binormal // 同上、= T × N
+
+// ホットパス: Float32Array に in-place 書き込み(alloc ゼロ)
+const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
+writeFrenetFrames(framesBuffer, path, samples)
+
+// バッファ直読み: stride + offset で任意成分にアクセス
+const frameIdx = 5
+const off = frameIdx * FRENET_STRIDE
+const tx = framesBuffer[off + FRENET_OFFSET.TANGENT]
+const ty = framesBuffer[off + FRENET_OFFSET.TANGENT + 1]
+const tz = framesBuffer[off + FRENET_OFFSET.TANGENT + 2]
+```
+
+- **twist-free**: 隣接フレーム間の `N` の変化が最小(double-reflection 法)
+- **alloc ゼロ**: `pointAt` / `tangentAt` を呼ばず、3 次ベジェ式を手展開で計算
+- **精度制御**: `{ arcLengthSamples: 64 }` で弧長サンプル数を指定(既定 64)
+- **`FRENET_STRIDE = 12`** と **`FRENET_OFFSET`**(POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9)はメジャーバージョン内 stable
+
+#### Catmull-Rom の Float32Array 直書き API(ホットパス向け)
+
+毎フレーム `fromCatmullRom` を呼ぶとパス 1 本につき数十個のオブジェクトが生成される。制御点が Float32Array で与えられる用途(WebAudio/WebXR/WASM 連携等)では、`BezierPath` オブジェクトを作らず直接セグメントの数値列を書き出す API を使える。
+
+```ts
+import {
+  CATMULL_ROM_SEGMENT_STRIDE,
+  CATMULL_ROM_SEGMENT_OFFSET,
+  writeCatmullRomSegments,
+  writeFrenetFramesFromCatmullRom,
+} from '@sumisonic/bezier-kit-core'
+
+// 20 制御点 → 19 セグメント(segment 1 個あたり 12 floats: start xyz, cp1 xyz, cp2 xyz, end xyz)
+const controlPoints = new Float32Array(20 * 3) // [x0, y0, z0, x1, y1, z1, ...]
+const segments = new Float32Array(19 * CATMULL_ROM_SEGMENT_STRIDE)
+writeCatmullRomSegments(segments, controlPoints, 20)
+
+// 制御点から直接 Frenet フレームへ(一体化 API、中間 segments バッファを隠蔽)
+const samples = 101
+const frames = new Float32Array(samples * FRENET_STRIDE)
+writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
+```
+
+- `CATMULL_ROM_SEGMENT_STRIDE = 12` / `CATMULL_ROM_SEGMENT_OFFSET` はメジャーバージョン内 stable
+- 既存 `fromCatmullRom` と float32 精度で一致(1e-4 以内)
 
 ### style(2D 限定)
 
