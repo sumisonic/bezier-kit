@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import type { BezierPath, BezierSegment, Point2D } from '@sumisonic/bezier-kit-core'
-import { createPathInterpolator, createPathSplitter, tangentAt } from '@sumisonic/bezier-kit-core'
+import { createPathInterpolator, createPathSplitter } from '@sumisonic/bezier-kit-core'
 
 const WIDTH = 760
 const HEIGHT = 400
@@ -71,19 +71,9 @@ const translatePath = (path: BezierPath<Point2D>, dx: number, dy: number): Bezie
   })),
 })
 
-/**
- * 分割点の法線方向(接線に直交する方向)の単位ベクトルを返す。
- * 接線ゼロ(cusp)の場合は `(0, 1)` をフォールバックとする。
- */
-const splitNormal = (rightPath: BezierPath<Point2D>): Point2D => {
-  const firstSeg = rightPath.segments[0]
-  if (!firstSeg) return { x: 0, y: 1 }
-  const tan = tangentAt(rightPath.start, firstSeg, 0)
-  const len = Math.hypot(tan.x, tan.y)
-  if (len < 1e-9) return { x: 0, y: 1 }
-  // 接線 (tx, ty) に直交するのは (-ty, tx)。Canvas は y 軸が下向きなので画面下方向にずらす想定で符号を決める。
-  return { x: -tan.y / len, y: tan.x / len }
-}
+// 分割後の左右を離す方向。分割点の接線から法線を取ると、ratio がセグメント境界を
+// またいだ瞬間に参照セグメントが変わって方向が急変するため、ここでは固定ベクトルを使う。
+const SPLIT_OFFSET_DIR: Point2D = { x: 0, y: 1 }
 
 type Props = {
   readonly animating: boolean
@@ -180,11 +170,12 @@ export const CanvasMorph = ({
         const split = createPathSplitter(current)
         const [left, right] = split(splitRatioRef.current)
 
-        // 分割後半を法線方向にオフセットさせて物理的に離す
+        // 分割後半を固定方向にオフセットさせて物理的に離す
         const offset = splitOffsetRef.current
-        const n = splitNormal(right)
-        const leftShifted = offset > 0 ? translatePath(left, -n.x * offset * 0.5, -n.y * offset * 0.5) : left
-        const rightShifted = offset > 0 ? translatePath(right, n.x * offset * 0.5, n.y * offset * 0.5) : right
+        const dx = SPLIT_OFFSET_DIR.x * offset * 0.5
+        const dy = SPLIT_OFFSET_DIR.y * offset * 0.5
+        const leftShifted = offset > 0 ? translatePath(left, -dx, -dy) : left
+        const rightShifted = offset > 0 ? translatePath(right, dx, dy) : right
 
         drawPath(ctx, leftShifted, { color: '#e94560', lineWidth: 3.5 })
         drawPath(ctx, rightShifted, { color: '#5bc0be', lineWidth: 3.5 })

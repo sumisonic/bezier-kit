@@ -17,7 +17,7 @@ export const App = (): React.ReactElement => {
       <p style={{ color: '#9aa1ae', marginTop: 0 }}>
         A React + Canvas 2D sample that interpolates two randomly generated <code>BezierPath</code>s with{' '}
         <code>createPathInterpolator</code> and visualizes an arc-length split via <code>createPathSplitter</code> at
-        the same time. The two halves are offset along the normal direction to separate them visually.
+        the same time. The two halves are offset vertically to separate them visually.
       </p>
 
       <CanvasMorph
@@ -155,8 +155,7 @@ export const App = (): React.ReactElement => {
           <strong>you can interpolate paths with different segment counts</strong>.
         </div>
         <div>
-          Split offset shifts each half by half of the offset value along the normal of the tangent vector obtained from{' '}
-          <code>tangentAt</code> (total separation equals the offset).
+          Split offset shifts each half vertically by half of the offset value (total separation equals the offset).
         </div>
       </div>
     </main>
