@@ -1,5 +1,12 @@
 # @sumisonic/bezier-kit-style
 
+## 0.3.0
+
+### Patch Changes
+
+- Updated dependencies [[`0afa62f`](https://github.com/sumisonic/bezier-kit/commit/0afa62f04b191bbcfae04c310733cf6ea52db546), [`6820d6a`](https://github.com/sumisonic/bezier-kit/commit/6820d6a7d0c690c0613f1a9fec1a82631ed7e9bd), [`46bec55`](https://github.com/sumisonic/bezier-kit/commit/46bec55e1f6bf5500e9a4a5fd33a3713a2864ce9)]:
+  - @sumisonic/bezier-kit-core@0.3.0
+
 ## 0.2.0
 
 ### Patch Changes
