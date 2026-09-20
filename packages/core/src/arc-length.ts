@@ -33,7 +33,7 @@ export type ArcLengthIndex<P extends Point> = {
  * パスの弧長情報を事前計算し、距離比率 `ratio`(0〜1)から
  * セグメントインデックスとセグメント内比率を返す関数を生成する。
  *
- * - 累積長は {@link scan} で O(N) 構築
+ * - 累積長は {@link scan} で構築(⚠ 現状の `scan` は spread で O(N²)。セグメント数が小さい前提。0.3.0 で見直す)
  * - `locate` は {@link binarySearchIndex} で O(log N) 検索
  * - `ratio` は内部で `clamp(0, 1)` されるため、範囲外値でも安全
  *

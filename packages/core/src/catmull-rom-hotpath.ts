@@ -38,10 +38,10 @@ export const catmullRomSegmentCount = (pointCount: number): number => {
 
 /**
  * Catmull-Rom 制御点(flat xyz)から 3 次ベジェセグメントの数値列を `Float32Array` に
- * 書き込む。中間の `BezierPath` オブジェクトを一切生成しない(alloc 0)。
+ * 書き込む。中間の `BezierPath` オブジェクトを生成しない(`Array.from` の index 配列とクロージャは残る)。
  *
  * 既存 {@link import('./path/from').fromCatmullRom | fromCatmullRom} と同じ数式を使うため、
- * 制御点が `Point3D` 配列の場合と bit-exact な数値が得られる。
+ * 制御点が `Point3D` 配列の場合の `fromCatmullRom` の結果と、Float32 への丸め誤差の範囲で一致する(テストの fixture では 1e-4 以内)。
  *
  * ## レイアウト(入出力)
  * - `controlPoints`: `[x0, y0, z0, x1, y1, z1, ...]`、長さ `pointCount * 3`
@@ -128,11 +128,11 @@ export const writeCatmullRomSegments = (
  * `writeCatmullRomSegments` の出力レイアウトを `BezierPath<Point3D>` に変換する。
  *
  * Frenet API は `BezierPath<Point3D>` を受け取る既存 API を流用するため、この
- * ヘルパで軽量な object 構造を作って渡す。Float32Array の view なので数値コピーは
- * しないが、object wrapper は 1 + segCount 個生成する。
+ * ヘルパで `Float32Array` の値を `BezierPath` 形状の一時オブジェクトへ読み出して渡す。
+ * path・start・各セグメント(segment と cp1 / cp2 / end)が生成されるので、オブジェクトは概ね `4 * segCount + 2` 個 + segments 配列。
  *
  * より高速な「segments Float32Array を直接受け取る Frenet」は
- * {@link writeFrenetFramesFromSegments} を参照(こちらは完全に alloc-free)。
+ * {@link writeFrenetFramesFromSegments} を参照(⚠ こちらも内部でこの一時オブジェクトを作るので alloc-free ではない。0.3.0 で Float32Array 直読みの kernel にする)。
  */
 const viewSegmentsAsPath = (segments: Float32Array, segCount: number): BezierPath<Point3D> => {
   const readPoint = (base: number): Point3D => ({
@@ -157,14 +157,13 @@ const viewSegmentsAsPath = (segments: Float32Array, segCount: number): BezierPat
  * {@link writeCatmullRomSegments} で書き出した `Float32Array` から Frenet フレームを計算する。
  *
  * ## 現状の実装と今後の最適化
- * 実装は `viewSegmentsAsPath` で `BezierPath<Point3D>` view を作り
- * {@link writeFrenetFrames} に委譲する。view は `1 + segCount` 個のオブジェクトを生成するが、
- * 数値コピーは一切発生しない。完全 alloc-free にするには Frenet 側を
+ * 実装は `viewSegmentsAsPath` で `BezierPath<Point3D>` 形状の一時オブジェクトを作り
+ * {@link writeFrenetFrames} に委譲する。概ね `4 * segCount + 2` 個のオブジェクトと配列が呼び出しごとに生成される。完全 alloc-free にするには Frenet 側を
  * `BezierPath` ベースではなく Float32Array ベースで再実装する必要があり、今後の
  * 最適化余地として残す(本 SOW のスコープ外)。
  *
  * なお、制御点から直接呼ぶ場合は {@link writeFrenetFramesFromCatmullRom} を使うと
- * segments Float32Array を中間で確保せず済み、合計の alloc も減らせる。
+ * 呼び出し側で segments バッファを用意せずに済む(内部では毎回確保するので、割り当てはむしろ増える)。
  *
  * @param out Frenet フレーム出力バッファ(長さ `samples * FRENET_STRIDE`)
  * @param segments {@link writeCatmullRomSegments} の出力

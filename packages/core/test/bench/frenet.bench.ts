@@ -23,7 +23,7 @@ const SAMPLES = 101
 describe('writeFrenetFrames vs pointAt+tangentAt ループ (3D, 101 samples)', () => {
   const out = new Float32Array(SAMPLES * FRENET_STRIDE)
 
-  bench('writeFrenetFrames (new, 0-alloc)', () => {
+  bench('writeFrenetFrames (in-place)', () => {
     writeFrenetFrames(out, path3D, SAMPLES)
   })
 

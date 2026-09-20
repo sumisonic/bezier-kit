@@ -12,7 +12,7 @@ export type FrenetFrame = {
   readonly position: Point3D
   /** 接線(正規化済み) */
   readonly tangent: Point3D
-  /** 法線(正規化済み、double-reflection で twist 最小化) */
+  /** 法線(正規化済み。隣接する接線の間の最小回転で運ぶ) */
   readonly normal: Point3D
   /** 従法線(= T × N、正規化済み) */
   readonly binormal: Point3D
@@ -128,8 +128,9 @@ const segmentControlPoints = (
 /**
  * 1 セグメントの弧長を線形サンプリング近似で計算する(Point オブジェクトを作らない)。
  *
- * 既存 `segmentLength(start, seg, { samples })` と bit-exact に一致する(同じ式、同じ order)。
- * 差: 中間の `pointAt` が返す `{ x, y, z }` オブジェクトを作らず、プリミティブで計算する。
+ * 既存 `segmentLength(start, seg, { samples })` と同じ式・同じ順序で計算する。
+ * 差: 中間の `pointAt` が返す `{ x, y, z }` オブジェクトを作らない。ただし `Array.from` の配列と
+ * reduce の累積オブジェクト(サンプルごと)は残るので、名前に反して alloc-free ではない(0.3.0 で kernel を書き直す)。
  */
 const segmentArcLengthAllocFree = (
   p0x: number,
@@ -182,7 +183,7 @@ const segmentArcLengthAllocFree = (
 /**
  * パスの各セグメント弧長と累積弧長を Float32Array に書き込む。
  *
- * `createArcLengthIndex` の Float32Array 版に相当する alloc-free 実装。
+ * `createArcLengthIndex` の Float32Array 版に相当する実装(Point は作らないが、配列と累積オブジェクトの割り当ては残る)。
  * `lengths` / `cumulative` の長さはともに `segments.length`。
  *
  * 返り値: 総弧長。
@@ -254,7 +255,7 @@ const locateByCumulative = (
 
 /**
  * 弧長比率 `ratio`(0..1)に対応する点と接線を求め、`out` の `frameIdx` 番目の
- * `POSITION` / `TANGENT` スロットに書き込む。オブジェクトリテラルを作らない。
+ * `POSITION` / `TANGENT` スロットに書き込む(`locateByCumulative` の結果オブジェクトと制御点タプルは呼び出しごとに作られる)。
  */
 const writeSample = (
   out: Float32Array,
@@ -308,7 +309,9 @@ const writeSample = (
 }
 
 /**
- * サンプル i の T, N, B を double-reflection 法で計算して書き込む(i >= 1)。
+ * サンプル i の T, N, B を計算して書き込む(i >= 1)。法線は「接線の和 `t + prev.t` を法線とする平面での 1 回の反射」で運ぶ。
+ * これは prev.t に直交する成分に対して「prev.t → t の最小回転」と一致し(three.js の computeFrenetFrames と同じ)、
+ * 2 次精度の離散 rotation-minimizing frame になる。Wang らの double reflection 法(位置差と接線差で 2 回反射、4 次精度)ではない。
  * 先頭フレーム(i = 0)は {@link writeFirstFrame} で別処理。
  */
 const writeDoubleReflectionFrame = (out: Float32Array, frameIdx: number): void => {
@@ -381,8 +384,11 @@ const writeFirstFrame = (out: Float32Array): void => {
 }
 
 /**
- * 3D ベジェパスに沿って `samples` 個の Frenet フレームを double-reflection 法で計算し、
- * 指定された `Float32Array` に interleave 書き込む(in-place、新規 alloc なし)。
+ * 3D ベジェパスに沿って `samples` 個のフレーム(位置・接線・法線・従法線)を計算し、
+ * 指定された `Float32Array` に interleave 書き込む(in-place。⚠ 呼び出しごとの内部割り当ては残る)。
+ *
+ * 名前は Frenet だが、法線は曲率方向ではなく「隣接する接線の間の最小回転」で運ぶ近似的な rotation-minimizing frame。
+ * セグメント間のサンプル配分は弧長比例、セグメントの中は等 `t`(弧長で等間隔ではない)。
  *
  * ## レイアウト
  * `out[frameIdx * FRENET_STRIDE + FRENET_OFFSET.*]` でアクセス。
@@ -390,12 +396,12 @@ const writeFirstFrame = (out: Float32Array): void => {
  *
  * ## 性能
  * - 3 次ベジェ式を手展開し、`pointAt` / `tangentAt` を呼ばない
- * - `createArcLengthIndex` を使わず `Float32Array` で弧長計算(Point alloc ゼロ)
+ * - `createArcLengthIndex` を使わず `Float32Array` で弧長計算(Point は作らない。配列・累積オブジェクト・タプルの割り当ては呼び出しごとに残る)
  * - `out` は呼び出し側で確保 / 再利用する(長さ `samples * FRENET_STRIDE` 以上)
  *
  * ## 精度
- * `options.arcLengthSamples`(既定 64)で弧長計算精度を制御する。既存
- * `segmentLength` と同じサンプル数なら bit-exact な弧長値が得られる。
+ * `options.arcLengthSamples`(既定 64)はセグメント長の測り方(= 各セグメントへのサンプル配分)の精度に効く。
+ * `segmentLength` と同じ式だが、内部は Float32Array に丸めるので `createArcLengthIndex` の値と bit-exact ではない。
  *
  * @param out 出力バッファ(長さ `samples * FRENET_STRIDE` 以上)
  * @param path 3D ベジェパス
@@ -432,7 +438,7 @@ export const writeFrenetFrames = (
   // 先頭フレームの N, B を初期化
   writeFirstFrame(out)
 
-  // 以降を double-reflection で決定
+  // 以降を接線間の最小回転(1 回の反射)で決定
   Array.from({ length: samples - 1 }, (_, i) => i + 1).forEach((i) => {
     writeDoubleReflectionFrame(out, i)
   })

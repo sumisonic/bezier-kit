@@ -8,8 +8,8 @@ import { arcLengthToParam } from './arc-length-param'
  *
  * `ratio` は内部で `clamp(0, 1)` されるため、範囲外でも安全。
  * 事前計算しないため 1 回だけ呼ぶ用途に向く。複数回呼ぶ場合は
- * {@link createArcLengthIndex} と {@link arcLengthToParam} を直接使い、
- * 事前計算結果を再利用する方が高速。
+ * {@link createArcLengthIndex} と {@link arcLengthToParam} を直接使うと、
+ * セグメントごとの弧長の再計算を避けられる(セグメント内の逆変換は毎回行う)。
  *
  * 2D / 3D 両対応。
  *

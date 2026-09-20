@@ -68,8 +68,8 @@ Mixing 2D and 3D paths produces a **compile-time error**, so dimension mistakes 
 - **Arc-length queries**: Get point and tangent vector at any arc-length ratio via `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)`
 - **Arc-length splits**: Slice a path at any ratio with `createPathSplitter`; sub-paths can be further interpolated or split
 - **Path generation from points**: `fromCatmullRom` (smooth spline) and `fromPolyline` (straight segments)
-- **Frenet frames (3D, hot-path)**: twist-free (T, N, B) via double-reflection, written directly into a `Float32Array`. Useful for tube/ribbon rendering
-- **Catmull-Rom Float32Array writers**: skip `BezierPath` object creation and go straight from control points to geometry with zero allocation
+- **Frenet frames (3D, hot-path)**: an approximately rotation-minimizing (T, N, B) basis (the normal is transported by the minimal rotation between adjacent tangents), written in place into a `Float32Array` you allocate. Useful for tube/ribbon rendering
+- **Catmull-Rom Float32Array writers**: go straight from control points to numeric segment data without building a `BezierPath` on the caller's side
 - **Styled paths** (`@sumisonic/bezier-kit-style`): animate 2D paths with color, gradient, and stroke using the same patterns
 - **Dimension-safe at type level**: Mixing 2D and 3D calls is a compile-time error
 
@@ -174,7 +174,7 @@ const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.
 
 #### Frenet frames (3D only, hot-path friendly)
 
-Compute a twist-free `(T, N, B)` orthonormal basis along a 3D path using the double-reflection method. Useful for tube/ribbon rendering.
+Compute an approximately rotation-minimizing `(T, N, B)` orthonormal basis along a 3D path: the normal is transported by the minimal rotation between adjacent tangents. Useful for tube/ribbon rendering.
 
 ```ts
 import {
@@ -191,7 +191,7 @@ frames[0].tangent // normalized { x, y, z }
 frames[0].normal // orthogonal to T
 frames[0].binormal // = T × N
 
-// Hot-path: write in-place into a Float32Array (zero allocation)
+// Hot-path: write in place into a Float32Array you allocate once and reuse
 const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
 writeFrenetFrames(framesBuffer, path, samples)
 
@@ -201,9 +201,9 @@ const off = frameIdx * FRENET_STRIDE
 const tx = framesBuffer[off + FRENET_OFFSET.TANGENT]
 ```
 
-- **Twist-free**: minimal change of `N` between adjacent frames (double-reflection method)
-- **Zero-alloc**: cubic Bezier formulas are inlined, no `pointAt`/`tangentAt` calls
-- **Precision knob**: `{ arcLengthSamples: 64 }` (default 64)
+- **Twist-minimizing**: `N` is carried by the minimal rotation between adjacent tangents (second-order accurate; this is not the double-reflection method)
+- **In-place output**: the caller owns the buffer; cubic Bezier formulas are inlined and no `pointAt`/`tangentAt` calls are made. The current implementation still allocates internally on every call, so it is not allocation-free (planned for 0.3.0)
+- **Precision knob**: `{ arcLengthSamples: 64 }` (default 64) controls how segment lengths are estimated, and therefore how samples are mapped to segments. Within a segment, samples are spaced by uniform `t`, not by arc length
 - **`FRENET_STRIDE = 12`** and **`FRENET_OFFSET`** (POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9) are stable within a major version
 
 #### Catmull-Rom Float32Array writers (hot-path friendly)
@@ -230,7 +230,7 @@ writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
 ```
 
 - `CATMULL_ROM_SEGMENT_STRIDE = 12` and `CATMULL_ROM_SEGMENT_OFFSET` are stable within a major version
-- Matches `fromCatmullRom` at float32 precision (within 1e-4)
+- Matches `fromCatmullRom` up to float32 rounding (the test fixtures agree within 1e-4)
 
 ### style (2D only)
 

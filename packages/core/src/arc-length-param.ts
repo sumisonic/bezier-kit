@@ -8,6 +8,9 @@ import { arcLengthTo, type ArcLengthOptions } from './segment'
  * `ratio` の clamp はしない(呼び出し側で管理すること)。`ratio <= 0` は `0`、
  * `ratio >= 1` は `1` を即座に返す。
  *
+ * ⚠ 各反復の {@link arcLengthTo} は `[0, mid]` を `samples` 等分するため、反復ごとに刻み幅が変わり、
+ * `segLen`(全長を `samples` 等分)とも刻みが揃わない。1 回の呼び出しで `iterations × samples` 回の点評価を行う。
+ *
  * 2D / 3D 両対応。
  *
  * @param start - セグメントの始点

@@ -58,8 +58,8 @@ const interp = createPathInterpolator(a, b) // 引数・戻り値すべて Point
 - **弧長比率でのパス上問い合わせ**: `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)` で座標と接線ベクトルを取得
 - **弧長比率でのパス分割**: `createPathSplitter` で任意位置から 2 つに切り分け、分割後も補間・再分割が可能
 - **点列からのパス生成**: `fromCatmullRom`(滑らかなスプライン)と `fromPolyline`(折れ線)
-- **Frenet フレーム(3D、ホットパス向け)**: double-reflection 法で twist-free な (T, N, B) を `Float32Array` に直接書き込み。Tube / Ribbon 描画に使える
-- **Catmull-Rom の Float32Array 直書き API**: 毎フレームの `BezierPath` 生成を回避し、alloc ゼロで制御点 → 幾何情報を変換
+- **Frenet フレーム(3D、ホットパス向け)**: 隣接する接線の間の最小回転で運ぶ、捩れの少ない (T, N, B) を、呼び出し側が確保した `Float32Array` に直接書き込む。Tube / Ribbon 描画に使える
+- **Catmull-Rom の Float32Array 直書き API**: 呼び出し側で `BezierPath` を組み立てずに、制御点 → セグメントの数値列を直接書き出す
 - **スタイル付きパスの補間**(`@sumisonic/bezier-kit-style`): 色・グラデーション・ストロークを含む 2D パスを同じ手順でアニメーション可能
 - **型で 2D / 3D を区別**: 混在呼び出しはコンパイルエラー
 
@@ -164,7 +164,7 @@ const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.
 
 #### Frenet フレーム(3D 限定、ホットパス向け)
 
-3D パスに沿った twist-free な直交基底 `(T, N, B)` をサンプル点ごとに計算する。double-reflection 法で法線の捩れを最小化し、Tube geometry や Ribbon 描画に使える。
+3D パスに沿った直交基底 `(T, N, B)` をサンプル点ごとに計算する。法線は隣接する接線の間の最小回転で運ぶ(近似的な rotation-minimizing frame)ので捩れが少なく、Tube geometry や Ribbon 描画に使える。
 
 ```ts
 import {
@@ -181,7 +181,7 @@ frames[0].tangent // { x, y, z }、正規化済み
 frames[0].normal // 同上、T と直交
 frames[0].binormal // 同上、= T × N
 
-// ホットパス: Float32Array に in-place 書き込み(alloc ゼロ)
+// ホットパス: 呼び出し側が 1 回確保して使い回す Float32Array に in-place 書き込み
 const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
 writeFrenetFrames(framesBuffer, path, samples)
 
@@ -193,9 +193,9 @@ const ty = framesBuffer[off + FRENET_OFFSET.TANGENT + 1]
 const tz = framesBuffer[off + FRENET_OFFSET.TANGENT + 2]
 ```
 
-- **twist-free**: 隣接フレーム間の `N` の変化が最小(double-reflection 法)
-- **alloc ゼロ**: `pointAt` / `tangentAt` を呼ばず、3 次ベジェ式を手展開で計算
-- **精度制御**: `{ arcLengthSamples: 64 }` で弧長サンプル数を指定(既定 64)
+- **捩れ最小化**: `N` は隣接する接線の間の最小回転で運ぶ(2 次精度。double-reflection 法ではない)
+- **in-place 出力**: バッファは呼び出し側が持つ。`pointAt` / `tangentAt` を呼ばず 3 次ベジェ式を手展開で計算するが、現状の実装は呼び出しごとに内部で割り当てが残っており、alloc-free ではない(0.3.0 で対応予定)
+- **精度制御**: `{ arcLengthSamples: 64 }`(既定 64)はセグメント長の見積もりの精度、つまりサンプルがどのセグメントに割り当てられるかに効く。セグメントの中は弧長ではなく等 `t` で並ぶ
 - **`FRENET_STRIDE = 12`** と **`FRENET_OFFSET`**(POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9)はメジャーバージョン内 stable
 
 #### Catmull-Rom の Float32Array 直書き API(ホットパス向け)
@@ -222,7 +222,7 @@ writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
 ```
 
 - `CATMULL_ROM_SEGMENT_STRIDE = 12` / `CATMULL_ROM_SEGMENT_OFFSET` はメジャーバージョン内 stable
-- 既存 `fromCatmullRom` と float32 精度で一致(1e-4 以内)
+- 既存 `fromCatmullRom` と Float32 への丸め誤差の範囲で一致(テストの fixture では 1e-4 以内)
 
 ### style(2D 限定)
 

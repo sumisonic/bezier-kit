@@ -109,7 +109,7 @@ export const splitSegmentAt = <P extends Point>(
 /**
  * `start` からセグメント上のパラメータ `tEnd`(0〜1)までの弧長を近似計算する。
  *
- * 線形サンプリングによる近似のため `tEnd * samples` 個の直線距離を合計する。
+ * `[0, tEnd]` を `samples` 等分し、隣り合う点を結ぶ直線距離の合計で近似する(評価回数と直線の本数は `tEnd` に依らず常に `samples`。始点を含む点の数は `samples + 1`)。
  * 精度を上げるには `options.samples` を増やす。
  *
  * @param start - セグメントの始点
