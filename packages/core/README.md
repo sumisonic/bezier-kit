@@ -37,7 +37,7 @@ Switching to 3D is just changing the type parameter to `Point3D` (mixing 2D and 
 - Path-level: `createPathInterpolator` / `createPathInterpolatorStrict` / `createPathSplitter` / `matchSegmentCount`
 - Arc-length queries: `pointAtLength` / `tangentAtLength`
 - Segment-level: `pointAt` / `tangentAt` / `splitSegmentAt` / `arcLengthTo` / `segmentLength`
-- Arc-length index: `createArcLengthIndex` / `arcLengthToParam`
+- Arc-length index: `createArcLengthIndex` / `createArcLengthParameterizer` (table-based `locateParam`, types `ArcLengthParam` / `ArcLengthParameterizer`) / `arcLengthToParam`
 - Bounding box: `bbox` (returns `BBox2D` or `BBox3D` depending on input)
 - Construction from points: `fromCatmullRom` / `fromPolyline`
 - Functor: `mapPoints` (2D ↔ 3D conversion, translation, scale, etc.)

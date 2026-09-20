@@ -1,15 +1,13 @@
 import type { BezierPath, Point } from './types'
 import { pointAt, tangentAt, type ArcLengthOptions } from './segment'
-import { createArcLengthIndex } from './arc-length'
-import { arcLengthToParam } from './arc-length-param'
+import { createArcLengthParameterizer } from './arc-length'
 
 /**
  * 弧長比率(0〜1)で {@link BezierPath} 上の点を返す。
  *
  * `ratio` は内部で `clamp(0, 1)` されるため、範囲外でも安全。
- * 事前計算しないため 1 回だけ呼ぶ用途に向く。複数回呼ぶ場合は
- * {@link createArcLengthIndex} と {@link arcLengthToParam} を直接使うと、
- * セグメントごとの弧長の再計算を避けられる(セグメント内の逆変換は毎回行う)。
+ * 呼び出しごとにパス全体の弧長表を作るので、1 回だけ呼ぶ用途に向く。複数回呼ぶ場合は
+ * {@link createArcLengthParameterizer} を 1 回作って `locateParam` を使い回す。
  *
  * 2D / 3D 両対応。
  *
@@ -25,14 +23,12 @@ export const pointAtLength = <P extends Point>(
 ): P => {
   if (path.segments.length === 0) throw new Error('pointAtLength: path has no segments')
 
-  const { lengths, startPoints, locate } = createArcLengthIndex(path, options)
-  const { segmentIndex, localRatio } = locate(ratio)
-  const seg = path.segments[segmentIndex]!
-  const sp = startPoints[segmentIndex]!
-  const segLen = lengths[segmentIndex] ?? 0
-
-  const t = arcLengthToParam(sp, seg, localRatio, segLen, options)
-  return pointAt(sp, seg, t)
+  const {
+    index: { startPoints },
+    locateParam,
+  } = createArcLengthParameterizer(path, options)
+  const { segmentIndex, t } = locateParam(ratio)
+  return pointAt(startPoints[segmentIndex]!, path.segments[segmentIndex]!, t)
 }
 
 /**
@@ -46,6 +42,9 @@ export const pointAtLength = <P extends Point>(
  * 接線ゼロ(cusp)の場合も計算結果をそのまま返す点に注意(ユーザー側で
  * `Math.hypot(...) < eps` などで判定する)。
  *
+ * 呼び出しごとにパス全体の弧長表を作るので、複数回呼ぶ場合は
+ * {@link createArcLengthParameterizer} を 1 回作って `locateParam` + {@link tangentAt} を使う。
+ *
  * @param path - 対象のパス
  * @param ratio - 弧長比率(0〜1、範囲外は clamp)
  * @param options - 弧長計算の精度
@@ -58,12 +57,10 @@ export const tangentAtLength = <P extends Point>(
 ): P => {
   if (path.segments.length === 0) throw new Error('tangentAtLength: path has no segments')
 
-  const { lengths, startPoints, locate } = createArcLengthIndex(path, options)
-  const { segmentIndex, localRatio } = locate(ratio)
-  const seg = path.segments[segmentIndex]!
-  const sp = startPoints[segmentIndex]!
-  const segLen = lengths[segmentIndex] ?? 0
-
-  const t = arcLengthToParam(sp, seg, localRatio, segLen, options)
-  return tangentAt(sp, seg, t)
+  const {
+    index: { startPoints },
+    locateParam,
+  } = createArcLengthParameterizer(path, options)
+  const { segmentIndex, t } = locateParam(ratio)
+  return tangentAt(startPoints[segmentIndex]!, path.segments[segmentIndex]!, t)
 }

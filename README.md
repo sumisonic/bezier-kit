@@ -106,6 +106,7 @@ import {
 
   // Arc-length index (fast for many calls)
   createArcLengthIndex,
+  createArcLengthParameterizer,
   arcLengthToParam,
 
   // Bounding box
@@ -151,7 +152,15 @@ const angle = Math.atan2(v.y, v.x)
 ```
 
 - **`ratio` is internally clamped to [0, 1]**, so out-of-range values are safe
-- For many calls, build once with `createArcLengthIndex` and reuse `arcLengthToParam` for speed
+- For many calls on the same path, build once with `createArcLengthParameterizer` and reuse `locateParam`: it keeps a per-segment cumulative arc-length table (64 intervals = 65 knots per segment by default) and inverts by table lookup, so a call costs a couple of binary searches and no curve evaluation
+
+```ts
+const { index, locateParam } = createArcLengthParameterizer(path)
+const { segmentIndex, t } = locateParam(0.5) // segment index + Bezier parameter at 50% arc length
+const p = pointAt(index.startPoints[segmentIndex], path.segments[segmentIndex], t)
+```
+
+- `createPathSplitter`, `pointAtLength` and `tangentAtLength` use the same table internally (since 0.3.0). `arcLengthToParam` (bisection that re-measures the curve on every step) remains for one-off inversions without an index
 
 #### Splitting by arc-length ratio
 

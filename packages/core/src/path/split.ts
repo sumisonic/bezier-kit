@@ -1,13 +1,13 @@
 import type { BezierPath, Point } from '../types'
 import { splitSegmentAt } from '../segment'
-import { createArcLengthIndex } from '../arc-length'
-import { arcLengthToParam } from '../arc-length-param'
+import { createArcLengthParameterizer } from '../arc-length'
 
 /**
  * パスを弧長比率で分割する関数を返す。
  *
- * セグメントごとの弧長はクロージャに保持され、分割のたびに再計算しない。ただしセグメント内の
- * 弧長 → `t` の逆変換({@link arcLengthToParam}、既定 15 反復 × 64 サンプル)は呼び出しごとに行う(0.3.0 で表引きにする)。
+ * 弧長の事前計算({@link createArcLengthParameterizer}: セグメントごとの累積弧長表)はクロージャに閉じ込められ、
+ * 返した関数は `ratio` ごとに表を二分探索して `t` を求め、そのセグメントを {@link splitSegmentAt} で切るだけ。
+ * 呼び出しごとの曲線上の点の評価は無い(以前は {@link arcLengthToParam} で 15 反復 × 64 点を毎回評価していた)。
  * `ratio` は内部で `clamp(0, 1)` されるため、範囲外値でも安全。
  *
  * 戻り値は `[前半パス, 後半パス]`。分割点は前半の最終セグメントの `end` であり、
@@ -21,20 +21,21 @@ import { arcLengthToParam } from '../arc-length-param'
 export const createPathSplitter = <P extends Point>(
   path: BezierPath<P>,
 ): ((ratio: number) => readonly [BezierPath<P>, BezierPath<P>]) => {
-  const { lengths, startPoints, locate } = createArcLengthIndex(path)
+  const {
+    index: { startPoints },
+    locateParam,
+  } = createArcLengthParameterizer(path)
 
   return (ratio: number): readonly [BezierPath<P>, BezierPath<P>] => {
-    const { segmentIndex: i, localRatio } = locate(ratio)
+    const { segmentIndex: i, t } = locateParam(ratio)
     const seg = path.segments[i]
     const sp = startPoints[i]
-    const segLen = lengths[i] ?? 0
 
     if (seg === undefined || sp === undefined) {
-      // 防御的フォールバック(locate の契約上ここには来ない)
+      // 防御的フォールバック(locateParam の契約上ここには来ない)
       return [path, { start: path.start, segments: [] }]
     }
 
-    const t = arcLengthToParam(sp, seg, localRatio, segLen)
     const [left, right] = splitSegmentAt(sp, seg, t)
 
     return [

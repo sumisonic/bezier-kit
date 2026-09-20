@@ -56,17 +56,28 @@ describe('createPathSplitter (2D)', () => {
     expect(left.segments.length + right.segments.length).toBe(path.segments.length + 1)
   })
 
-  it('分割後の左右の弧長の合計が元の弧長に近い', () => {
+  it('分割後の左右の弧長の合計が元の弧長と相対 1e-4 以内で一致する', () => {
+    // 64 分割の折れ線で測るので、切った後の 2 本の折れ線長の和は元の折れ線長と厳密には一致しない。
+    // 実測 1e-5 前後(2026-09-20)。以前の `toBeCloseTo(…, 0)`(±0.5)は事実上何も検査していなかった
     const split = createPathSplitter(path)
-    const [left, right] = split(0.4)
     const originalLength = totalArcLength2D(path)
-    expect(totalArcLength2D(left) + totalArcLength2D(right)).toBeCloseTo(originalLength, 0)
+    ;[0.1, 0.3, 0.4, 0.9].forEach((ratio) => {
+      const [left, right] = split(ratio)
+      const sum = totalArcLength2D(left) + totalArcLength2D(right)
+      expect(Math.abs(sum - originalLength) / originalLength).toBeLessThanOrEqual(1e-4)
+    })
   })
 
-  it('ratio=0.5 で左右の弧長がほぼ等しい', () => {
+  it('左側の弧長の割合が ratio と絶対 1e-4 以内で一致する(ratio=0.5 は厳密に半分)', () => {
+    // 実測: 0.1 で 9.6e-6、0.3 で 3.4e-6、0.4 / 0.9 で 3.8e-7、0.5 で 0(2026-09-20)
     const split = createPathSplitter(path)
+    const originalLength = totalArcLength2D(path)
+    ;[0.1, 0.3, 0.4, 0.9].forEach((ratio) => {
+      const [left] = split(ratio)
+      expect(Math.abs(totalArcLength2D(left) / originalLength - ratio)).toBeLessThanOrEqual(1e-4)
+    })
     const [left, right] = split(0.5)
-    expect(totalArcLength2D(left) / totalArcLength2D(right)).toBeCloseTo(1, 0)
+    expect(totalArcLength2D(left) / totalArcLength2D(right)).toBeCloseTo(1, 6)
   })
 })
 

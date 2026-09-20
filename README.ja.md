@@ -96,6 +96,7 @@ import {
 
   // 弧長インデックス(大量呼び出しの高速化)
   createArcLengthIndex,
+  createArcLengthParameterizer,
   arcLengthToParam,
 
   // バウンディングボックス
@@ -141,7 +142,15 @@ const angle = Math.atan2(v.y, v.x)
 ```
 
 - **`ratio` は内部で `clamp(0, 1)`** されるので範囲外でも安全
-- 大量に呼ぶ場合は `createArcLengthIndex` + `arcLengthToParam` で事前計算すると高速
+- 同じパスに大量に呼ぶ場合は `createArcLengthParameterizer` を 1 回作って `locateParam` を使い回す。セグメントごとの累積弧長表(既定 64 分割)を持ち、表引きで `t` を返すので、1 回の呼び出しは二分探索 2 回だけで曲線上の点の評価が無い
+
+```ts
+const { index, locateParam } = createArcLengthParameterizer(path)
+const { segmentIndex, t } = locateParam(0.5) // 弧長 50% の位置のセグメント添字とベジェパラメータ
+const p = pointAt(index.startPoints[segmentIndex], path.segments[segmentIndex], t)
+```
+
+- `createPathSplitter` / `pointAtLength` / `tangentAtLength` も内部で同じ表を使う(0.3.0 から)。`arcLengthToParam`(反復ごとに曲線を測り直す二分探索)は index を持たない単発の逆変換用に残している
 
 #### 弧長比率でのパス分割
 

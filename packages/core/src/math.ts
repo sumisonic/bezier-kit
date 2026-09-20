@@ -66,7 +66,7 @@ export const distance = <P extends Point>(a: P, b: P): number => {
  * `reduce` と異なり、各ステップの中間結果を配列として返す。例えば `[1, 2, 3]` を
  * 初期値 `0` で加算 scan すると `[1, 3, 6]`(= `[0+1, 0+1+2, 0+1+2+3]`)になる。
  *
- * 弧長の累積配列の構築に用いる。⚠ 現状は `[...acc, next]` で配列をコピーするため O(N²)(要素数が小さい前提。0.3.0 で見直す)。
+ * 弧長の累積配列の O(N) 構築に用いる。
  *
  * @param items - 入力配列
  * @param initial - 畳み込みの初期値
@@ -77,12 +77,17 @@ export const scan = <T, U>(
   items: readonly T[],
   initial: U,
   reducer: (acc: U, item: T, index: number) => U,
-): readonly U[] =>
-  items.reduce<readonly U[]>((acc, item, i) => {
-    const prev = i === 0 ? initial : acc[acc.length - 1]
-    const next = reducer(prev as U, item, i)
-    return [...acc, next]
-  }, [])
+): readonly U[] => {
+  // 出力配列を 1 本だけ用意し、reduce で累積値を運びながら末尾に足す(O(N))。
+  // 以前は `[...acc, next]` で毎回コピーしていて O(N²) だった(2026-09-20 修正)。
+  const out: U[] = []
+  items.reduce<U>((acc, item, i) => {
+    const next = reducer(acc, item, i)
+    out.push(next)
+    return next
+  }, initial)
+  return out
+}
 
 /**
  * 昇順ソート済みの数値配列 `arr` に対して、`arr[i] >= target` となる
