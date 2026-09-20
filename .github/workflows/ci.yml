@@ -29,11 +29,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Build first: `style` resolves `@sumisonic/bezier-kit-core` through the workspace link to
+      # `packages/core/dist`, so lint (typed rules) and typecheck of `packages/style` need core's dist.
+      # Running check before build made every run since 0.1.0 fail with `no-unsafe-*` on style's specs.
+      - name: Build
+        run: pnpm run build
+
       - name: Lint + typecheck + format:check
         run: pnpm run check
 
       - name: Test
         run: pnpm run test:run
-
-      - name: Build
-        run: pnpm run build
