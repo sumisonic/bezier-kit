@@ -5,6 +5,7 @@ import {
   CATMULL_ROM_SEGMENT_STRIDE,
   writeCatmullRomSegments,
   writeFrenetFramesFromCatmullRom,
+  writeFrenetFramesFromSegments,
 } from '../../src/catmull-rom-hotpath'
 import { FRENET_STRIDE, writeFrenetFrames } from '../../src/frenet'
 
@@ -31,7 +32,7 @@ pointsArray.forEach((p, i) => {
 describe('writeCatmullRomSegments vs fromCatmullRom (allocation 比較)', () => {
   const segmentsBuffer = new Float32Array(SEG_COUNT * CATMULL_ROM_SEGMENT_STRIDE)
 
-  bench('writeCatmullRomSegments (new, 0-alloc)', () => {
+  bench('writeCatmullRomSegments (in-place)', () => {
     writeCatmullRomSegments(segmentsBuffer, controlPointsFloat32, POINT_COUNT)
   })
 
@@ -48,10 +49,11 @@ describe('writeFrenetFramesFromCatmullRom vs 2 段 (一体化 API の利得)', (
     writeFrenetFramesFromCatmullRom(framesBuffer, controlPointsFloat32, POINT_COUNT, SAMPLES)
   })
 
-  bench('2 段 + segments バッファ再利用(理想)', () => {
+  bench('2 段 + segments バッファ再利用', () => {
+    // 一体化版と同じ仕事(segments → frames まで)を、segments バッファを使い回して行う。
+    // 以前は Frenet 段を省いていたため 1 段 vs 2 段の比較になっていた(2026-09-20 修正)
     writeCatmullRomSegments(segmentsBufferReuse, controlPointsFloat32, POINT_COUNT)
-    // writeFrenetFramesFromSegments 相当: segments view を経由して writeFrenetFrames
-    // 直接 BezierPath 版を使っても差は精度のみで、alloc 比較には十分
+    writeFrenetFramesFromSegments(framesBuffer, segmentsBufferReuse, SEG_COUNT, SAMPLES)
   })
 
   bench('baseline: fromCatmullRom + writeFrenetFrames', () => {

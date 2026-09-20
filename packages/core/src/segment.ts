@@ -12,8 +12,23 @@ export type ArcLengthOptions = {
   readonly samples?: number
 }
 
-/** 弧長計算のデフォルトサンプリング数。 */
-const DEFAULT_SAMPLES = 64
+/** 弧長計算のデフォルトサンプリング数(区間数。点は +1 個)。パッケージ内部で共有する。 */
+export const DEFAULT_ARC_LENGTH_SAMPLES = 64
+
+/**
+ * 弧長計算の分割数を検証する。1 以上の安全な整数でなければ `RangeError`。
+ *
+ * 分割数は配列長・表の stride・除数・二分探索の上限にそのまま使うので、0 / 負数 / 小数 / NaN を
+ * 通すと空の表や `t > 1` のような壊れた結果になる。入口で止める。
+ *
+ * @param samples - 検証する分割数
+ * @param where - エラーメッセージに出す関数名
+ */
+export const assertArcLengthSamples = (samples: number, where: string): void => {
+  if (!Number.isSafeInteger(samples) || samples < 1) {
+    throw new RangeError(`${where}: samples must be a positive integer (got ${String(samples)})`)
+  }
+}
 
 const is3D = (p: Point): p is Point3D => 'z' in p
 
@@ -109,7 +124,7 @@ export const splitSegmentAt = <P extends Point>(
 /**
  * `start` からセグメント上のパラメータ `tEnd`(0〜1)までの弧長を近似計算する。
  *
- * 線形サンプリングによる近似のため `tEnd * samples` 個の直線距離を合計する。
+ * `[0, tEnd]` を `samples` 等分し、隣り合う点を結ぶ直線距離の合計で近似する(評価回数と直線の本数は `tEnd` に依らず常に `samples`。始点を含む点の数は `samples + 1`)。
  * 精度を上げるには `options.samples` を増やす。
  *
  * @param start - セグメントの始点
@@ -123,7 +138,8 @@ export const arcLengthTo = <P extends Point>(
   tEnd: number,
   options: ArcLengthOptions = {},
 ): number => {
-  const samples = options.samples ?? DEFAULT_SAMPLES
+  const samples = options.samples ?? DEFAULT_ARC_LENGTH_SAMPLES
+  assertArcLengthSamples(samples, 'arcLengthTo')
   const { len } = Array.from({ length: samples }, (_, i) => ((i + 1) / samples) * tEnd).reduce<{
     readonly len: number
     readonly prev: P

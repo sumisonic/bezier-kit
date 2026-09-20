@@ -10,14 +10,20 @@
 export type { Point, Point2D, Point3D, BezierSegment, BezierPath } from './types'
 export type { BBox, BBox2D, BBox3D } from './bbox'
 export type { ArcLengthOptions } from './segment'
-export type { ArcLengthIndex, ArcLengthLocation } from './arc-length'
+export type { ArcLengthIndex, ArcLengthLocation, ArcLengthParam, ArcLengthParameterizer } from './arc-length'
 export type { CatmullRomOptions } from './path/from'
 export type { FrenetFrame, FrenetOptions } from './frenet'
+export type {
+  RotationMinimizingFrame,
+  FrameParameterization,
+  RotationMinimizingFrameWriterOptions,
+  RotationMinimizingFrameWriter,
+} from './rmf'
 
 export { lerp, clamp, lerpPoint, distance, scan, binarySearchIndex } from './math'
 export { bbox } from './bbox'
 export { pointAt, tangentAt, splitSegmentAt, arcLengthTo, segmentLength, segmentStartPoints } from './segment'
-export { createArcLengthIndex } from './arc-length'
+export { createArcLengthIndex, createArcLengthParameterizer } from './arc-length'
 export { arcLengthToParam } from './arc-length-param'
 export { matchSegmentCount } from './path/match-count'
 export { createPathInterpolator, createPathInterpolatorStrict } from './path/interpolate'
@@ -26,6 +32,13 @@ export { fromCatmullRom, fromPolyline } from './path/from'
 export { mapPoints } from './path/map-points'
 export { pointAtLength, tangentAtLength } from './path-query'
 export { FRENET_STRIDE, FRENET_OFFSET, writeFrenetFrames, readFrenetFrame, computeFrenetFrames } from './frenet'
+export {
+  RMF_STRIDE,
+  RMF_OFFSET,
+  createRotationMinimizingFrameWriter,
+  readRotationMinimizingFrame,
+  computeRotationMinimizingFrames,
+} from './rmf'
 export {
   CATMULL_ROM_SEGMENT_STRIDE,
   CATMULL_ROM_SEGMENT_OFFSET,

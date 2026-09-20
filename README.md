@@ -68,8 +68,8 @@ Mixing 2D and 3D paths produces a **compile-time error**, so dimension mistakes 
 - **Arc-length queries**: Get point and tangent vector at any arc-length ratio via `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)`
 - **Arc-length splits**: Slice a path at any ratio with `createPathSplitter`; sub-paths can be further interpolated or split
 - **Path generation from points**: `fromCatmullRom` (smooth spline) and `fromPolyline` (straight segments)
-- **Frenet frames (3D, hot-path)**: twist-free (T, N, B) via double-reflection, written directly into a `Float32Array`. Useful for tube/ribbon rendering
-- **Catmull-Rom Float32Array writers**: skip `BezierPath` object creation and go straight from control points to geometry with zero allocation
+- **Rotation-minimizing frames (3D, hot-path)**: a twist-minimizing (T, N, B) basis (double reflection, fourth-order) written into a `Float32Array` you allocate, by a writer that does no per-call allocation after setup (measured on V8: no young-generation GC in 100k calls). Useful for tube/ribbon rendering
+- **Catmull-Rom Float32Array writers**: go straight from control points to numeric segment data without building a `BezierPath`, and feed them to the frame writer
 - **Styled paths** (`@sumisonic/bezier-kit-style`): animate 2D paths with color, gradient, and stroke using the same patterns
 - **Dimension-safe at type level**: Mixing 2D and 3D calls is a compile-time error
 
@@ -106,6 +106,7 @@ import {
 
   // Arc-length index (fast for many calls)
   createArcLengthIndex,
+  createArcLengthParameterizer,
   arcLengthToParam,
 
   // Bounding box
@@ -123,6 +124,18 @@ import {
   clamp,
   lerpPoint,
   distance,
+
+  // Rotation-minimizing frames (3D, hot-path)
+  createRotationMinimizingFrameWriter,
+  computeRotationMinimizingFrames,
+  readRotationMinimizingFrame,
+  RMF_STRIDE,
+  RMF_OFFSET,
+
+  // Catmull-Rom → numeric segments (3D, hot-path)
+  writeCatmullRomSegments,
+  CATMULL_ROM_SEGMENT_STRIDE,
+  CATMULL_ROM_SEGMENT_OFFSET,
 } from '@sumisonic/bezier-kit-core'
 ```
 
@@ -151,7 +164,15 @@ const angle = Math.atan2(v.y, v.x)
 ```
 
 - **`ratio` is internally clamped to [0, 1]**, so out-of-range values are safe
-- For many calls, build once with `createArcLengthIndex` and reuse `arcLengthToParam` for speed
+- For many calls on the same path, build once with `createArcLengthParameterizer` and reuse `locateParam`: it keeps a per-segment cumulative arc-length table (64 intervals = 65 knots per segment by default) and inverts by table lookup, so a call costs a couple of binary searches and no curve evaluation
+
+```ts
+const { index, locateParam } = createArcLengthParameterizer(path)
+const { segmentIndex, t } = locateParam(0.5) // segment index + Bezier parameter at 50% arc length
+const p = pointAt(index.startPoints[segmentIndex], path.segments[segmentIndex], t)
+```
+
+- `createPathSplitter`, `pointAtLength` and `tangentAtLength` use the same table internally (since 0.3.0). `arcLengthToParam` (bisection that re-measures the curve on every step) remains for one-off inversions without an index
 
 #### Splitting by arc-length ratio
 
@@ -172,50 +193,54 @@ const path3d = mapPoints<Point2D, Point3D>(path2d, (p) => ({ x: p.x, y: p.y, z: 
 const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.y }))
 ```
 
-#### Frenet frames (3D only, hot-path friendly)
+#### Rotation-minimizing frames (3D only, hot-path friendly)
 
-Compute a twist-free `(T, N, B)` orthonormal basis along a 3D path using the double-reflection method. Useful for tube/ribbon rendering.
+Compute an orthonormal `(T, N, B)` basis along a 3D path whose normal twists as little as possible (a rotation-minimizing / Bishop frame). Useful for tube and ribbon rendering. Since 0.3.0 the writer is a **factory**: it allocates its scratch buffers once, and the returned functions write into a caller-owned `Float32Array` with no allocation per call.
 
 ```ts
 import {
-  FRENET_STRIDE,
-  FRENET_OFFSET,
-  writeFrenetFrames,
-  readFrenetFrame,
-  computeFrenetFrames,
+  RMF_STRIDE,
+  RMF_OFFSET,
+  createRotationMinimizingFrameWriter,
+  readRotationMinimizingFrame,
+  computeRotationMinimizingFrames,
 } from '@sumisonic/bezier-kit-core'
 
-// Debug / one-shot: get an array of frame objects
-const frames = computeFrenetFrames(path, samples)
-frames[0].tangent // normalized { x, y, z }
-frames[0].normal // orthogonal to T
-frames[0].binormal // = T × N
+// Set up once: capacity (max segments), sample count, and the scratch buffers behind them
+const writer = createRotationMinimizingFrameWriter({ maxSegments: 19, samples: 101 })
+const framesBuffer = new Float32Array(101 * RMF_STRIDE)
 
-// Hot-path: write in-place into a Float32Array (zero allocation)
-const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
-writeFrenetFrames(framesBuffer, path, samples)
+// Every frame: write from a BezierPath<Point3D>…
+writer.writePath(framesBuffer, path)
+// …or straight from the numeric segments produced by writeCatmullRomSegments (no BezierPath needed)
+writer.writeSegments(framesBuffer, segments, 19)
 
 // Read any component via stride + offset
-const frameIdx = 5
-const off = frameIdx * FRENET_STRIDE
-const tx = framesBuffer[off + FRENET_OFFSET.TANGENT]
+const off = 5 * RMF_STRIDE
+const tx = framesBuffer[off + RMF_OFFSET.TANGENT]
+
+// Debug / one-shot: an array of frame objects (allocates)
+const frames = computeRotationMinimizingFrames(path, 101)
+frames[0].normal // orthogonal to T
 ```
 
-- **Twist-free**: minimal change of `N` between adjacent frames (double-reflection method)
-- **Zero-alloc**: cubic Bezier formulas are inlined, no `pointAt`/`tangentAt` calls
-- **Precision knob**: `{ arcLengthSamples: 64 }` (default 64)
-- **`FRENET_STRIDE = 12`** and **`FRENET_OFFSET`** (POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9) are stable within a major version
+- **Double reflection**: the normal is transported with the double-reflection method (Wang et al. 2008), which is fourth-order accurate on smooth, regular curves (curves with curvature jumps, such as Catmull-Rom joints, converge more slowly but still far faster than the old method). The pre-0.3.0 `writeFrenetFrames` used the minimal rotation between adjacent tangents (second-order)
+- **Even spacing by default**: samples are placed by arc length (`parameterization: 'arc-length'`, using the same per-segment table as `createPathSplitter`). `'segment-t'` reproduces the pre-0.3.0 spacing (uniform `t` within a segment)
+- **`initialNormal`**: pass the previous frame's normal for a curve that changes every frame, so the ribbon does not flip when the automatic axis choice changes
+- **Degenerate input**: zero-length paths, zero tangents (cusps) and coincident samples fall back to a deterministic orthonormal basis by default; `strict: true` throws instead
+- **No per-call allocation after setup**: in steady state the writer is designed to create no objects, arrays or closures. This is measured on V8 / Node 22, not guaranteed by the language: `pnpm bench:alloc` counts young-generation GCs over 100k calls, with and without inlining (`--no-turbo-inlining`), and both are 0. Other engines are not measured. Capacity and buffer lengths are still validated on every call (`RangeError`)
+- **Layout**: `RMF_STRIDE = 12` and `RMF_OFFSET` (POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9) are stable within a major version and identical to the older `FRENET_STRIDE` / `FRENET_OFFSET`
+- `writeFrenetFrames`, `computeFrenetFrames`, `writeFrenetFramesFromSegments` and `writeFrenetFramesFromCatmullRom` are **deprecated** but unchanged (they keep the pre-0.3.0 output); they allocate on every call
 
 #### Catmull-Rom Float32Array writers (hot-path friendly)
 
-When control points live in a `Float32Array` (WebAudio / WebXR / WASM interop), you can skip the `BezierPath` object entirely and write segment numerics directly.
+When control points live in a `Float32Array` (WebAudio / WebXR / WASM interop), you can skip the `BezierPath` object entirely and write numeric segment data directly.
 
 ```ts
 import {
   CATMULL_ROM_SEGMENT_STRIDE,
   CATMULL_ROM_SEGMENT_OFFSET,
   writeCatmullRomSegments,
-  writeFrenetFramesFromCatmullRom,
 } from '@sumisonic/bezier-kit-core'
 
 // 20 control points → 19 segments (12 floats each: start xyz, cp1 xyz, cp2 xyz, end xyz)
@@ -223,14 +248,13 @@ const controlPoints = new Float32Array(20 * 3)
 const segments = new Float32Array(19 * CATMULL_ROM_SEGMENT_STRIDE)
 writeCatmullRomSegments(segments, controlPoints, 20)
 
-// Or go straight from control points to Frenet frames
-const samples = 101
-const frames = new Float32Array(samples * FRENET_STRIDE)
-writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
+// Then hand the segments to the frame writer (see above)
+writer.writeSegments(framesBuffer, segments, 19)
 ```
 
 - `CATMULL_ROM_SEGMENT_STRIDE = 12` and `CATMULL_ROM_SEGMENT_OFFSET` are stable within a major version
-- Matches `fromCatmullRom` at float32 precision (within 1e-4)
+- Matches `fromCatmullRom` up to float32 rounding (the test fixtures agree within 1e-4)
+- Allocation-free per call since 0.3.0 (measured with `pnpm bench:alloc`)
 
 ### style (2D only)
 
