@@ -37,12 +37,14 @@ Switching to 3D is just changing the type parameter to `Point3D` (mixing 2D and 
 - Path-level: `createPathInterpolator` / `createPathInterpolatorStrict` / `createPathSplitter` / `matchSegmentCount`
 - Arc-length queries: `pointAtLength` / `tangentAtLength`
 - Segment-level: `pointAt` / `tangentAt` / `splitSegmentAt` / `arcLengthTo` / `segmentLength`
-- Arc-length index: `createArcLengthIndex` / `arcLengthToParam`
+- Arc-length index: `createArcLengthIndex` / `createArcLengthParameterizer` (table-based `locateParam`, types `ArcLengthParam` / `ArcLengthParameterizer`) / `arcLengthToParam`
 - Bounding box: `bbox` (returns `BBox2D` or `BBox3D` depending on input)
 - Construction from points: `fromCatmullRom` / `fromPolyline`
 - Functor: `mapPoints` (2D ↔ 3D conversion, translation, scale, etc.)
 - Math utilities: `lerp` / `clamp` / `lerpPoint` / `distance` / `scan` / `binarySearchIndex`
-- Types: `Point2D` / `Point3D` / `Point`, `BezierSegment<P>`, `BezierPath<P>`, `BBox2D` / `BBox3D` / `BBox<P>`, `ArcLengthIndex<P>`, `ArcLengthLocation`
+- Rotation-minimizing frames (3D, hot-path): `createRotationMinimizingFrameWriter` (no per-call allocation after setup, measured on V8; double reflection; arc-length spacing) / `computeRotationMinimizingFrames` / `readRotationMinimizingFrame` / `RMF_STRIDE` / `RMF_OFFSET`. The pre-0.3.0 `writeFrenetFrames` family is deprecated but unchanged
+- Catmull-Rom → numeric segments (3D, hot-path): `writeCatmullRomSegments` / `CATMULL_ROM_SEGMENT_STRIDE` / `CATMULL_ROM_SEGMENT_OFFSET`
+- Types: `Point2D` / `Point3D` / `Point`, `BezierSegment<P>`, `BezierPath<P>`, `BBox2D` / `BBox3D` / `BBox<P>`, `ArcLengthIndex<P>`, `ArcLengthLocation`, `ArcLengthParam`, `ArcLengthParameterizer<P>`, `RotationMinimizingFrame`, `RotationMinimizingFrameWriter`, `RotationMinimizingFrameWriterOptions`, `FrameParameterization`
 
 See the [repository README](https://github.com/sumisonic/bezier-kit#readme) for API details.
 

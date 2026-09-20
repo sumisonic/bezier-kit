@@ -3,6 +3,7 @@ import type { BezierPath, Point3D } from '../src/types'
 import { FRENET_OFFSET, FRENET_STRIDE, computeFrenetFrames, readFrenetFrame, writeFrenetFrames } from '../src/frenet'
 import { fromCatmullRom } from '../src/path/from'
 import { createArcLengthIndex } from '../src/arc-length'
+import { pointAt } from '../src/segment'
 
 const straightPath: BezierPath<Point3D> = {
   start: { x: 0, y: 0, z: 0 },
@@ -87,10 +88,8 @@ describe('writeFrenetFrames - 直交性とノルム(property-based)', () => {
   })
 })
 
-describe('writeFrenetFrames - 弧長計算が既存 createArcLengthIndex と数値一致', () => {
-  it('curvyPath の総弧長が createArcLengthIndex と一致(bit-exact 同等)', () => {
-    // writeFrenetFrames は内部で同じサンプル数 (64) で計算するので、
-    // 末尾フレームの到達位置が createArcLengthIndex ベースの pointAtLength と一致するはず。
+describe('writeFrenetFrames - サンプル位置の契約', () => {
+  it('末尾フレームの位置は最終セグメントの end に一致する(ratio=1 は最終セグメントの t=1)', () => {
     const samples = 2
     const out = new Float32Array(samples * FRENET_STRIDE)
     writeFrenetFrames(out, curvyPath, samples)
@@ -102,24 +101,20 @@ describe('writeFrenetFrames - 弧長計算が既存 createArcLengthIndex と数�
     expect(out[off + FRENET_OFFSET.POSITION + 2]).toBeCloseTo(lastSeg.end.z, 5)
   })
 
-  it('内部の累積弧長が createArcLengthIndex の出力と bit-exact (誤差 1e-6 以内)', () => {
+  it('ratio=0.5 のサンプルは locate が選ぶセグメント上で、距離比率をそのまま t にした点(現状の契約: セグメント内は等 t)', () => {
+    // writeFrenetFrames は createArcLengthIndex と同じ 64 サンプルでセグメント長を測り、
+    // セグメントの選択は弧長比例、セグメント内は localRatio をそのまま t として使う。
+    // (0.3.0 で既定を弧長パラメータ化に変えたら、この期待値は arcLengthToParam 経由の点に変わる)
     const index = createArcLengthIndex(curvyPath)
-    // 中間位置 ratio=0.5 における位置を writeFrenetFrames と pointAtLength で比較
     const samples = 3
     const out = new Float32Array(samples * FRENET_STRIDE)
     writeFrenetFrames(out, curvyPath, samples)
-    // ratio 0, 0.5, 1 の 3 点。ratio=0.5 の位置を読む
+    const { segmentIndex, localRatio } = index.locate(0.5)
+    const expected = pointAt(index.startPoints[segmentIndex]!, curvyPath.segments[segmentIndex]!, localRatio)
     const midOff = FRENET_STRIDE
-    const mid = {
-      x: out[midOff + FRENET_OFFSET.POSITION]!,
-      y: out[midOff + FRENET_OFFSET.POSITION + 1]!,
-      z: out[midOff + FRENET_OFFSET.POSITION + 2]!,
-    }
-    // totalLength の半分が中央位置
-    expect(index.totalLength).toBeGreaterThan(0)
-    expect(Number.isFinite(mid.x)).toBe(true)
-    expect(Number.isFinite(mid.y)).toBe(true)
-    expect(Number.isFinite(mid.z)).toBe(true)
+    expect(out[midOff + FRENET_OFFSET.POSITION]).toBeCloseTo(expected.x, 3)
+    expect(out[midOff + FRENET_OFFSET.POSITION + 1]).toBeCloseTo(expected.y, 3)
+    expect(out[midOff + FRENET_OFFSET.POSITION + 2]).toBeCloseTo(expected.z, 3)
   })
 })
 

@@ -32,16 +32,18 @@ export const CATMULL_ROM_SEGMENT_OFFSET = {
  * @returns セグメント数(= `pointCount - 1`)
  */
 export const catmullRomSegmentCount = (pointCount: number): number => {
-  if (pointCount < 2) throw new Error(`catmullRomSegmentCount: pointCount must be >= 2 (got ${pointCount})`)
+  if (!Number.isSafeInteger(pointCount) || pointCount < 2) {
+    throw new RangeError(`catmullRomSegmentCount: pointCount must be an integer >= 2 (got ${String(pointCount)})`)
+  }
   return pointCount - 1
 }
 
 /**
  * Catmull-Rom 制御点(flat xyz)から 3 次ベジェセグメントの数値列を `Float32Array` に
- * 書き込む。中間の `BezierPath` オブジェクトを一切生成しない(alloc 0)。
+ * 書き込む。中間の `BezierPath` オブジェクトも配列もクロージャも生成しない(0.3.0 で `for` に書き換え。`scripts/alloc-probe.mjs` で Scavenge 0 回を確認)。
  *
  * 既存 {@link import('./path/from').fromCatmullRom | fromCatmullRom} と同じ数式を使うため、
- * 制御点が `Point3D` 配列の場合と bit-exact な数値が得られる。
+ * 制御点が `Point3D` 配列の場合の `fromCatmullRom` の結果と、Float32 への丸め誤差の範囲で一致する(テストの fixture では 1e-4 以内)。
  *
  * ## レイアウト(入出力)
  * - `controlPoints`: `[x0, y0, z0, x1, y1, z1, ...]`、長さ `pointCount * 3`
@@ -58,35 +60,41 @@ export const writeCatmullRomSegments = (
   out: Float32Array,
   controlPoints: Float32Array,
   pointCount: number,
-  options: CatmullRomOptions = {},
+  options?: CatmullRomOptions,
 ): void => {
-  if (pointCount < 2) throw new Error(`writeCatmullRomSegments: pointCount must be >= 2 (got ${pointCount})`)
+  if (!Number.isSafeInteger(pointCount) || pointCount < 2) {
+    throw new RangeError(`writeCatmullRomSegments: pointCount must be an integer >= 2 (got ${String(pointCount)})`)
+  }
+  if (controlPoints.length < pointCount * 3) {
+    throw new RangeError(
+      `writeCatmullRomSegments: controlPoints must have at least ${String(pointCount * 3)} floats (got ${String(controlPoints.length)})`,
+    )
+  }
+  if (out.length < (pointCount - 1) * CATMULL_ROM_SEGMENT_STRIDE) {
+    throw new RangeError(
+      `writeCatmullRomSegments: out must have at least ${String((pointCount - 1) * CATMULL_ROM_SEGMENT_STRIDE)} floats (got ${String(out.length)})`,
+    )
+  }
 
-  const tension = options.tension ?? 1
+  // options は省略可能な引数のまま(`= {}` の既定値は呼び出しごとの割り当てになるので置かない)
+  const tension = options?.tension ?? 1
 
   // fromCatmullRom と同じ extended 配列の index 計算を Float32Array 上で直接行う
   // extended[0] = points[0], extended[1..pointCount] = points[0..pointCount-1], extended[pointCount+1] = points[pointCount-1]
   //
   // セグメント i は extended[i+1] → extended[i+2] の変換で、
-  //   prev = extended[i]
-  //   current = extended[i+1]
-  //   next = extended[i+2]
-  //   nextNext = extended[i+3] (存在しなければ next)
+  //   prev = extended[i]、current = extended[i+1]、next = extended[i+2]、nextNext = extended[i+3](存在しなければ next)
+  // Float32Array 上では extended[k] = (k === 0) ? points[0] : (k === pointCount + 1) ? points[pointCount - 1] : points[k - 1]
   //
-  // Float32Array 上では:
-  //   extended[k] = (k === 0) ? points[0] : (k === pointCount + 1) ? points[pointCount - 1] : points[k - 1]
-
+  // ⚠ ホットパス(毎フレーム呼ばれる)なので `for` を使う(規約の例外。eslint.config.js 参照)。
+  // 以前の `Array.from(...).forEach` + クロージャは呼び出しごとに約 0.6 KB の割り当てになっていた(2026-09-20 実測)
   const segCount = pointCount - 1
   const lastIndex = pointCount - 1
-  // extended[k] を Float32Array index に変換するヘルパ(clamp ロジックをベタに展開)
-  // k=0 → 0、k=pointCount+1 → lastIndex、その他 → k-1。全て 0..lastIndex の範囲に収まる。
-  const extendedIndex = (k: number): number => (k <= 0 ? 0 : k >= pointCount + 1 ? lastIndex : k - 1)
-
-  Array.from({ length: segCount }, (_, i) => i).forEach((i) => {
-    const prevBase = extendedIndex(i) * 3
-    const currentBase = extendedIndex(i + 1) * 3
-    const nextBase = extendedIndex(i + 2) * 3
-    const nextNextBase = extendedIndex(i + 3) * 3
+  for (let i = 0; i < segCount; i++) {
+    const prevBase = (i <= 0 ? 0 : i - 1) * 3
+    const currentBase = i * 3
+    const nextBase = (i + 1) * 3
+    const nextNextBase = (i + 3 >= pointCount + 1 ? lastIndex : i + 2) * 3
 
     const prevX = controlPoints[prevBase]!
     const prevY = controlPoints[prevBase + 1]!
@@ -121,18 +129,18 @@ export const writeCatmullRomSegments = (
     out[off + CATMULL_ROM_SEGMENT_OFFSET.END] = nextX
     out[off + CATMULL_ROM_SEGMENT_OFFSET.END + 1] = nextY
     out[off + CATMULL_ROM_SEGMENT_OFFSET.END + 2] = nextZ
-  })
+  }
 }
 
 /**
  * `writeCatmullRomSegments` の出力レイアウトを `BezierPath<Point3D>` に変換する。
  *
  * Frenet API は `BezierPath<Point3D>` を受け取る既存 API を流用するため、この
- * ヘルパで軽量な object 構造を作って渡す。Float32Array の view なので数値コピーは
- * しないが、object wrapper は 1 + segCount 個生成する。
+ * ヘルパで `Float32Array` の値を `BezierPath` 形状の一時オブジェクトへ読み出して渡す。
+ * path・start・各セグメント(segment と cp1 / cp2 / end)が生成されるので、オブジェクトは概ね `4 * segCount + 2` 個 + segments 配列。
  *
- * より高速な「segments Float32Array を直接受け取る Frenet」は
- * {@link writeFrenetFramesFromSegments} を参照(こちらは完全に alloc-free)。
+ * 割り当てなしで segments から直接フレームを書くには {@link createRotationMinimizingFrameWriter} の `writeSegments` を使う(0.3.0)。
+ * このヘルパは deprecated の {@link writeFrenetFramesFromSegments} のためだけに残っている。
  */
 const viewSegmentsAsPath = (segments: Float32Array, segCount: number): BezierPath<Point3D> => {
   const readPoint = (base: number): Point3D => ({
@@ -156,16 +164,16 @@ const viewSegmentsAsPath = (segments: Float32Array, segCount: number): BezierPat
 /**
  * {@link writeCatmullRomSegments} で書き出した `Float32Array` から Frenet フレームを計算する。
  *
- * ## 現状の実装と今後の最適化
- * 実装は `viewSegmentsAsPath` で `BezierPath<Point3D>` view を作り
- * {@link writeFrenetFrames} に委譲する。view は `1 + segCount` 個のオブジェクトを生成するが、
- * 数値コピーは一切発生しない。完全 alloc-free にするには Frenet 側を
- * `BezierPath` ベースではなく Float32Array ベースで再実装する必要があり、今後の
- * 最適化余地として残す(本 SOW のスコープ外)。
+ * ## 実装
+ * `viewSegmentsAsPath` で `BezierPath<Point3D>` 形状の一時オブジェクトを作り {@link writeFrenetFrames} に委譲する。
+ * 概ね `4 * segCount + 2` 個のオブジェクトと配列が呼び出しごとに生成される。割り当てなしの実装は
+ * {@link createRotationMinimizingFrameWriter} の `writeSegments`(Float32Array 直読みの kernel)。
  *
  * なお、制御点から直接呼ぶ場合は {@link writeFrenetFramesFromCatmullRom} を使うと
- * segments Float32Array を中間で確保せず済み、合計の alloc も減らせる。
+ * 呼び出し側で segments バッファを用意せずに済む(内部では毎回確保するので、割り当てはむしろ増える)。
  *
+ * @deprecated 0.3.0 から {@link createRotationMinimizingFrameWriter} の `writeSegments` を使う(同じ入力レイアウト。`BezierPath` 形状の
+ *   一時オブジェクトを作らず、呼び出しごとの割り当てが無い)。この関数は 0.2.x の出力を変えないためにそのまま残している。
  * @param out Frenet フレーム出力バッファ(長さ `samples * FRENET_STRIDE`)
  * @param segments {@link writeCatmullRomSegments} の出力
  * @param segCount セグメント数(= `pointCount - 1`)
@@ -193,6 +201,8 @@ export const writeFrenetFramesFromSegments = (
  * 呼び出し元で segments バッファを `useRef` 等で保持しつつ上記 2 段 API を使うのが最良。
  * 本関数は利便性優先の一体化 API で、コード量を減らしたい用途向け。
  *
+ * @deprecated 0.3.0 から {@link writeCatmullRomSegments} + {@link createRotationMinimizingFrameWriter} の `writeSegments` を使う
+ *   (segments バッファは呼び出し側で 1 回確保して使い回す)。
  * @param out Frenet フレーム出力バッファ(長さ `samples * FRENET_STRIDE`)
  * @param controlPoints 制御点 flat xyz(長さ `pointCount * 3`)
  * @param pointCount 制御点数(≥ 2)

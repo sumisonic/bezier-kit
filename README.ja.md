@@ -58,8 +58,8 @@ const interp = createPathInterpolator(a, b) // 引数・戻り値すべて Point
 - **弧長比率でのパス上問い合わせ**: `pointAtLength(path, ratio)` / `tangentAtLength(path, ratio)` で座標と接線ベクトルを取得
 - **弧長比率でのパス分割**: `createPathSplitter` で任意位置から 2 つに切り分け、分割後も補間・再分割が可能
 - **点列からのパス生成**: `fromCatmullRom`(滑らかなスプライン)と `fromPolyline`(折れ線)
-- **Frenet フレーム(3D、ホットパス向け)**: double-reflection 法で twist-free な (T, N, B) を `Float32Array` に直接書き込み。Tube / Ribbon 描画に使える
-- **Catmull-Rom の Float32Array 直書き API**: 毎フレームの `BezierPath` 生成を回避し、alloc ゼロで制御点 → 幾何情報を変換
+- **捩れ最小フレーム(3D、ホットパス向け)**: 捩れが最小の (T, N, B)(double reflection、4 次精度)を、呼び出し側が確保した `Float32Array` に書く。writer は初期化後に呼び出しごとの割り当てを行わない(V8 で 10 万回呼んで young generation の GC が 0 回)。Tube / Ribbon 描画に使える
+- **Catmull-Rom の Float32Array 直書き API**: `BezierPath` を組み立てずに制御点 → セグメントの数値列を書き出し、そのままフレーム writer に渡せる
 - **スタイル付きパスの補間**(`@sumisonic/bezier-kit-style`): 色・グラデーション・ストロークを含む 2D パスを同じ手順でアニメーション可能
 - **型で 2D / 3D を区別**: 混在呼び出しはコンパイルエラー
 
@@ -96,6 +96,7 @@ import {
 
   // 弧長インデックス(大量呼び出しの高速化)
   createArcLengthIndex,
+  createArcLengthParameterizer,
   arcLengthToParam,
 
   // バウンディングボックス
@@ -113,6 +114,18 @@ import {
   clamp,
   lerpPoint,
   distance,
+
+  // 捩れ最小フレーム(3D、ホットパス)
+  createRotationMinimizingFrameWriter,
+  computeRotationMinimizingFrames,
+  readRotationMinimizingFrame,
+  RMF_STRIDE,
+  RMF_OFFSET,
+
+  // Catmull-Rom → セグメントの数値列(3D、ホットパス)
+  writeCatmullRomSegments,
+  CATMULL_ROM_SEGMENT_STRIDE,
+  CATMULL_ROM_SEGMENT_OFFSET,
 } from '@sumisonic/bezier-kit-core'
 ```
 
@@ -141,7 +154,15 @@ const angle = Math.atan2(v.y, v.x)
 ```
 
 - **`ratio` は内部で `clamp(0, 1)`** されるので範囲外でも安全
-- 大量に呼ぶ場合は `createArcLengthIndex` + `arcLengthToParam` で事前計算すると高速
+- 同じパスに大量に呼ぶ場合は `createArcLengthParameterizer` を 1 回作って `locateParam` を使い回す。セグメントごとの累積弧長表(既定 64 分割)を持ち、表引きで `t` を返すので、1 回の呼び出しは二分探索 2 回だけで曲線上の点の評価が無い
+
+```ts
+const { index, locateParam } = createArcLengthParameterizer(path)
+const { segmentIndex, t } = locateParam(0.5) // 弧長 50% の位置のセグメント添字とベジェパラメータ
+const p = pointAt(index.startPoints[segmentIndex], path.segments[segmentIndex], t)
+```
+
+- `createPathSplitter` / `pointAtLength` / `tangentAtLength` も内部で同じ表を使う(0.3.0 から)。`arcLengthToParam`(反復ごとに曲線を測り直す二分探索)は index を持たない単発の逆変換用に残している
 
 #### 弧長比率でのパス分割
 
@@ -162,41 +183,44 @@ const path3d = mapPoints<Point2D, Point3D>(path2d, (p) => ({ x: p.x, y: p.y, z: 
 const shifted = mapPoints<Point2D, Point2D>(path2d, (p) => ({ x: p.x + 10, y: p.y }))
 ```
 
-#### Frenet フレーム(3D 限定、ホットパス向け)
+#### 捩れ最小フレーム(rotation-minimizing frame。3D 限定、ホットパス向け)
 
-3D パスに沿った twist-free な直交基底 `(T, N, B)` をサンプル点ごとに計算する。double-reflection 法で法線の捩れを最小化し、Tube geometry や Ribbon 描画に使える。
+3D パスに沿った直交基底 `(T, N, B)` をサンプル点ごとに計算する。法線は曲線に沿って捩れが最小になるように運ぶ(rotation-minimizing / Bishop frame)ので、Tube geometry や Ribbon 描画に使える。0.3.0 から **工場関数**になった: 作業領域は factory が 1 回だけ確保し、返ってくる関数は呼び出し側が持つ `Float32Array` に書くだけで、呼び出しごとの割り当てが無い。
 
 ```ts
 import {
-  FRENET_STRIDE,
-  FRENET_OFFSET,
-  writeFrenetFrames,
-  readFrenetFrame,
-  computeFrenetFrames,
+  RMF_STRIDE,
+  RMF_OFFSET,
+  createRotationMinimizingFrameWriter,
+  readRotationMinimizingFrame,
+  computeRotationMinimizingFrames,
 } from '@sumisonic/bezier-kit-core'
 
-// デバッグ / 単発利用: オブジェクト配列を取得
-const frames = computeFrenetFrames(path, samples)
-frames[0].tangent // { x, y, z }、正規化済み
-frames[0].normal // 同上、T と直交
-frames[0].binormal // 同上、= T × N
+// 最初に 1 回: 容量(セグメント数の上限)とサンプル数を決め、その分の作業領域を確保する
+const writer = createRotationMinimizingFrameWriter({ maxSegments: 19, samples: 101 })
+const framesBuffer = new Float32Array(101 * RMF_STRIDE)
 
-// ホットパス: Float32Array に in-place 書き込み(alloc ゼロ)
-const framesBuffer = new Float32Array(samples * FRENET_STRIDE)
-writeFrenetFrames(framesBuffer, path, samples)
+// 毎フレーム: BezierPath<Point3D> から書く…
+writer.writePath(framesBuffer, path)
+// …または writeCatmullRomSegments が書いたセグメントの数値列から直接書く(BezierPath は不要)
+writer.writeSegments(framesBuffer, segments, 19)
 
-// バッファ直読み: stride + offset で任意成分にアクセス
-const frameIdx = 5
-const off = frameIdx * FRENET_STRIDE
-const tx = framesBuffer[off + FRENET_OFFSET.TANGENT]
-const ty = framesBuffer[off + FRENET_OFFSET.TANGENT + 1]
-const tz = framesBuffer[off + FRENET_OFFSET.TANGENT + 2]
+// stride + offset で任意成分を読む
+const off = 5 * RMF_STRIDE
+const tx = framesBuffer[off + RMF_OFFSET.TANGENT]
+
+// デバッグ / 単発利用: オブジェクト配列で受け取る(割り当てあり)
+const frames = computeRotationMinimizingFrames(path, 101)
+frames[0].normal // T と直交
 ```
 
-- **twist-free**: 隣接フレーム間の `N` の変化が最小(double-reflection 法)
-- **alloc ゼロ**: `pointAt` / `tangentAt` を呼ばず、3 次ベジェ式を手展開で計算
-- **精度制御**: `{ arcLengthSamples: 64 }` で弧長サンプル数を指定(既定 64)
-- **`FRENET_STRIDE = 12`** と **`FRENET_OFFSET`**(POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9)はメジャーバージョン内 stable
+- **double reflection**: 法線は Wang らの double reflection 法(隣接 2 点の位置差で 1 回、接線差で 1 回反射)で運ぶ。滑らかで正則な曲線で 4 次精度(Catmull-Rom の継ぎ目のように曲率が飛ぶ曲線では収束が遅くなるが、旧方式よりずっと速い)。0.3.0 より前の `writeFrenetFrames` は接線間の最小回転(2 次精度)だった
+- **既定で弧長等間隔**: サンプルは曲線に沿った距離で等間隔に置く(`parameterization: 'arc-length'`。`createPathSplitter` と同じセグメントごとの表を使う)。`'segment-t'` にすると 0.3.0 より前と同じ配置(セグメントの中は等 `t`)になる
+- **`initialNormal`**: 毎フレーム形が変わる曲線では前フレームの法線を渡す。自動で選ぶ軸が切り替わったときにリボンが裏返るのを防げる
+- **退化した入力**: 全長ゼロ・接線ゼロ(cusp)・隣接サンプルの一致は、既定では決定的な直交基底にフォールバックする。`strict: true` なら throw
+- **初期化後は呼び出しごとの割り当てなし**: 定常状態で writer はオブジェクト・配列・クロージャを作らないように書いてある。これは言語仕様の保証ではなく V8 / Node 22 での実測: `pnpm bench:alloc` が 10 万回呼んだ間の young generation GC の回数を数え、既定でも `--no-turbo-inlining` でも 0 回。他のエンジンは未測定。容量とバッファ長の検査は毎回行う(`RangeError`)
+- **レイアウト**: `RMF_STRIDE = 12` と `RMF_OFFSET`(POSITION=0, TANGENT=3, NORMAL=6, BINORMAL=9)はメジャーバージョン内 stable。従来の `FRENET_STRIDE` / `FRENET_OFFSET` と同じ値
+- `writeFrenetFrames` / `computeFrenetFrames` / `writeFrenetFramesFromSegments` / `writeFrenetFramesFromCatmullRom` は **deprecated**(0.3.0 より前の出力を変えないためにそのまま残している。呼び出しごとに割り当てる)
 
 #### Catmull-Rom の Float32Array 直書き API(ホットパス向け)
 
@@ -207,7 +231,6 @@ import {
   CATMULL_ROM_SEGMENT_STRIDE,
   CATMULL_ROM_SEGMENT_OFFSET,
   writeCatmullRomSegments,
-  writeFrenetFramesFromCatmullRom,
 } from '@sumisonic/bezier-kit-core'
 
 // 20 制御点 → 19 セグメント(segment 1 個あたり 12 floats: start xyz, cp1 xyz, cp2 xyz, end xyz)
@@ -215,14 +238,13 @@ const controlPoints = new Float32Array(20 * 3) // [x0, y0, z0, x1, y1, z1, ...]
 const segments = new Float32Array(19 * CATMULL_ROM_SEGMENT_STRIDE)
 writeCatmullRomSegments(segments, controlPoints, 20)
 
-// 制御点から直接 Frenet フレームへ(一体化 API、中間 segments バッファを隠蔽)
-const samples = 101
-const frames = new Float32Array(samples * FRENET_STRIDE)
-writeFrenetFramesFromCatmullRom(frames, controlPoints, 20, samples)
+// そのままフレーム writer に渡す(上記)
+writer.writeSegments(framesBuffer, segments, 19)
 ```
 
 - `CATMULL_ROM_SEGMENT_STRIDE = 12` / `CATMULL_ROM_SEGMENT_OFFSET` はメジャーバージョン内 stable
-- 既存 `fromCatmullRom` と float32 精度で一致(1e-4 以内)
+- 既存 `fromCatmullRom` と Float32 への丸め誤差の範囲で一致(テストの fixture では 1e-4 以内)
+- 0.3.0 から呼び出しごとの割り当てなし(`pnpm bench:alloc` で確認)
 
 ### style(2D 限定)
 

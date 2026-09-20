@@ -188,4 +188,14 @@ describe('writeFrenetFramesFromCatmullRom(一体化 API)', () => {
     writeFrenetFramesFromCatmullRom(out, cps, points.length, samples, { arcLengthSamples: 32 })
     expect(Number.isFinite(out[0])).toBe(true)
   })
+
+  it('writeCatmullRomSegments は pointCount が整数でない / 入力不足 / 出力不足で RangeError', () => {
+    const cps = new Float32Array(20 * 3)
+    const out = new Float32Array(19 * CATMULL_ROM_SEGMENT_STRIDE)
+    expect(() => writeCatmullRomSegments(out, cps, 2.5)).toThrow(RangeError)
+    expect(() => writeCatmullRomSegments(out, cps, Number.POSITIVE_INFINITY)).toThrow(RangeError)
+    expect(() => writeCatmullRomSegments(out, cps, 21)).toThrow(RangeError) // 制御点が 20 個しかない
+    expect(() => writeCatmullRomSegments(new Float32Array(12), cps, 20)).toThrow(RangeError) // 出力が 1 セグメント分
+    expect(() => catmullRomSegmentCount(1.5)).toThrow(RangeError)
+  })
 })
