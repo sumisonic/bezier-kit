@@ -13,6 +13,12 @@ export type { ArcLengthOptions } from './segment'
 export type { ArcLengthIndex, ArcLengthLocation, ArcLengthParam, ArcLengthParameterizer } from './arc-length'
 export type { CatmullRomOptions } from './path/from'
 export type { FrenetFrame, FrenetOptions } from './frenet'
+export type {
+  RotationMinimizingFrame,
+  FrameParameterization,
+  RotationMinimizingFrameWriterOptions,
+  RotationMinimizingFrameWriter,
+} from './rmf'
 
 export { lerp, clamp, lerpPoint, distance, scan, binarySearchIndex } from './math'
 export { bbox } from './bbox'
@@ -26,6 +32,13 @@ export { fromCatmullRom, fromPolyline } from './path/from'
 export { mapPoints } from './path/map-points'
 export { pointAtLength, tangentAtLength } from './path-query'
 export { FRENET_STRIDE, FRENET_OFFSET, writeFrenetFrames, readFrenetFrame, computeFrenetFrames } from './frenet'
+export {
+  RMF_STRIDE,
+  RMF_OFFSET,
+  createRotationMinimizingFrameWriter,
+  readRotationMinimizingFrame,
+  computeRotationMinimizingFrames,
+} from './rmf'
 export {
   CATMULL_ROM_SEGMENT_STRIDE,
   CATMULL_ROM_SEGMENT_OFFSET,

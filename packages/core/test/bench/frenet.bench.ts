@@ -2,6 +2,7 @@ import { bench, describe } from 'vitest'
 import type { BezierPath, Point3D } from '../../src/types'
 import { fromCatmullRom } from '../../src/path/from'
 import { FRENET_STRIDE, writeFrenetFrames } from '../../src/frenet'
+import { createRotationMinimizingFrameWriter } from '../../src/rmf'
 import { createArcLengthIndex } from '../../src/arc-length'
 import { arcLengthToParam } from '../../src/arc-length-param'
 import { pointAt, tangentAt } from '../../src/segment'
@@ -25,6 +26,19 @@ describe('writeFrenetFrames vs pointAt+tangentAt ループ (3D, 101 samples)', (
 
   bench('writeFrenetFrames (in-place)', () => {
     writeFrenetFrames(out, path3D, SAMPLES)
+  })
+
+  const writer = createRotationMinimizingFrameWriter({ maxSegments: path3D.segments.length, samples: SAMPLES })
+  bench('createRotationMinimizingFrameWriter → writePath (0.3.0, arc-length, alloc-free)', () => {
+    writer.writePath(out, path3D)
+  })
+  const writerT = createRotationMinimizingFrameWriter({
+    maxSegments: path3D.segments.length,
+    samples: SAMPLES,
+    parameterization: 'segment-t',
+  })
+  bench('createRotationMinimizingFrameWriter → writePath (segment-t)', () => {
+    writerT.writePath(out, path3D)
   })
 
   bench('baseline: createArcLengthIndex + pointAt+tangentAt ループ', () => {

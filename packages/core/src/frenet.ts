@@ -24,6 +24,7 @@ export type FrenetFrame = {
  * レイアウト: `[px, py, pz, tx, ty, tz, nx, ny, nz, bx, by, bz]`
  *
  * メジャーバージョン内は stable。ストライドやレイアウト変更は SemVer major として扱う。
+ * 0.3.0 から同じ値の {@link RMF_STRIDE} がある(名前を実態に合わせた)。この定数も残る。
  */
 export const FRENET_STRIDE = 12
 
@@ -407,6 +408,9 @@ const writeFirstFrame = (out: Float32Array): void => {
  * @param path 3D ベジェパス
  * @param samples サンプル点数(≥ 2)
  * @param options 精度オプション
+ * @deprecated 0.3.0 から {@link createRotationMinimizingFrameWriter} を使う(工場関数が作業領域を先に確保し、返す関数は割り当てなし。
+ *   法線は本物の double reflection、セグメント内は弧長で等間隔、初期法線を渡せる)。この関数は 0.2.x の出力を変えないためにそのまま残している。
+ *   位置と接線だけ同じ出力が欲しい場合は writer を `parameterization: 'segment-t'` で作る(法線の運び方は変わる)。
  * @throws `samples < 2` または `path.segments` が空の場合
  */
 export const writeFrenetFrames = (
@@ -485,6 +489,7 @@ export const readFrenetFrame = (frames: Float32Array, frameIdx: number): FrenetF
  * デバッグ / テスト / 単発利用向け。ホットパスでは {@link writeFrenetFrames} で
  * 事前確保した `Float32Array` に書き込む方が高速。
  *
+ * @deprecated 0.3.0 から {@link computeRotationMinimizingFrames} を使う。
  * @param path 3D ベジェパス
  * @param samples サンプル点数(≥ 2)
  * @param options 精度オプション

@@ -21,7 +21,8 @@
     "version": "changeset version",
     "release": "pnpm run build && changeset publish",
     "example:canvas": "pnpm --filter canvas-morph dev",
-    "example:three": "pnpm --filter threejs-tube dev"
+    "example:three": "pnpm --filter threejs-tube dev",
+    "bench:alloc": "node scripts/alloc-probe.mjs"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

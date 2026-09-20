@@ -48,6 +48,23 @@ export default tseslint.config(
       '@typescript-eslint/consistent-type-definitions': ['error', 'type'],
     },
   },
+  // ホットパスの kernel(毎フレーム呼ばれる)— for / let を許可する唯一の場所。
+  // reduce の累積オブジェクトと、inline されない関数呼び出しへの double 引数(HeapNumber)が割り当てになるため
+  // (2026-09-20 実測。理由はファイル冒頭のコメント)。追加するときはこの files に列挙し、ファイル冒頭に理由を書く
+  {
+    files: ['packages/core/src/rmf.ts', 'packages/core/src/catmull-rom-hotpath.ts'],
+    rules: {
+      'functional/no-let': 'off',
+      'functional/no-loop-statements': 'off',
+    },
+  },
+  // 手元で回す Node スクリプト(bench:alloc など)— Node のグローバルだけ許可
+  {
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', globalThis: 'readonly' },
+    },
+  },
   // 設定ファイル(tsup / vitest / eslint)— 型チェックなし、let/loop 許可
   {
     files: ['eslint.config.js', 'vitest.config.ts', 'packages/*/vitest.config.ts', 'packages/*/tsup.config.ts'],
